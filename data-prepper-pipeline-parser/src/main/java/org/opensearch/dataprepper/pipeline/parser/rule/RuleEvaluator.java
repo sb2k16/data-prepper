@@ -52,7 +52,7 @@ public class RuleEvaluator {
      * @return RuleEvaluatorResult
      */
     private RuleEvaluatorResult isDocDBSource(PipelinesDataFlowModel pipelinesModel) {
-        PLUGIN_NAME = "documentdb";
+        PLUGIN_NAME = "opensearch_api";
 //        String pluginRulesPath = transformersFactory.getPluginRuleFileLocation(PLUGIN_NAME);
 //        File ruleFile = new File(pluginRulesPath);
 //        LOG.info("Checking rule path {}",ruleFile.getAbsolutePath());

@@ -41,7 +41,6 @@ public class OpenSearchAPISourceConfig extends HttpServerConfig {
     private String s3Region;
 
     @JsonProperty("aws")
-    @NotNull
     @Valid
     private AwsAuthenticationOptions awsConfig;
 

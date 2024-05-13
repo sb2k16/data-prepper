@@ -67,11 +67,21 @@ public abstract class AbstractSink<T extends Record<?>> implements Sink<T> {
         timeElapsedTimer.record(() -> doOutput(records));
     }
 
+    @Override
+    public Object outputSync(Collection<T> records, boolean isQuery) {
+        recordsInCounter.increment(records.size()*1.0);
+        return timeElapsedTimer.record(() -> doOutputSync(records, isQuery));
+    }
+
     /**
      * This method should implement the output logic
      * @param records Records to be output
      */
     public abstract void doOutput(Collection<T> records);
+
+    public Object doOutputSync(Collection<T> records, boolean isQuery) {
+        return "";
+    }
 
     @Override
     public void shutdown() {

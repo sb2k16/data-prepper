@@ -32,6 +32,7 @@ import org.opensearch.dataprepper.plugins.certificate.CertificateProvider;
 import org.opensearch.dataprepper.plugins.certificate.model.Certificate;
 import org.opensearch.dataprepper.plugins.codec.CompressionOption;
 import org.opensearch.dataprepper.http.common.certificate.CertificateProviderFactory;
+import org.opensearch.dataprepper.source.PipelineSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,7 +46,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.function.Function;
 
 @DataPrepperPlugin(name = "opensearch_api", pluginType = Source.class, pluginConfigurationType = OpenSearchAPISourceConfig.class)
-public class OpenSearchAPISource implements Source<Record<Event>> {
+public class OpenSearchAPISource extends PipelineSource<Record<Event>> {
     private static final Logger LOG = LoggerFactory.getLogger(OpenSearchAPISource.class);
     private static final String PIPELINE_NAME_PLACEHOLDER = "${pipelineName}";
     public static final String REGEX_HEALTH = "regex:^/(?!health$).*$";
@@ -140,7 +141,7 @@ public class OpenSearchAPISource implements Source<Record<Event>> {
 
             final String httpSourcePath = sourceConfig.getPath().replace(PIPELINE_NAME_PLACEHOLDER, pipelineName);
             sb.decorator(httpSourcePath, ThrottlingService.newDecorator(logThrottlingStrategy, logThrottlingRejectHandler));
-            final OpenSearchAPIService openSearchAPIService = new OpenSearchAPIService(sourceConfig.getBufferTimeoutInMillis(), buffer, pluginMetrics);
+            final OpenSearchAPIService openSearchAPIService = new OpenSearchAPIService(this, sourceConfig.getBufferTimeoutInMillis(), buffer, pluginMetrics);
 
             if (CompressionOption.NONE.equals(sourceConfig.getCompression())) {
                 sb.annotatedService(httpSourcePath, openSearchAPIService, httpRequestExceptionHandler);

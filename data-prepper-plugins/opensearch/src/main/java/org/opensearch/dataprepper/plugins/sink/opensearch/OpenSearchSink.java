@@ -15,13 +15,20 @@ import org.opensearch.client.RestHighLevelClient;
 import org.opensearch.client.opensearch.OpenSearchClient;
 import org.opensearch.client.opensearch._types.VersionType;
 import org.opensearch.client.opensearch.core.BulkRequest;
+import org.opensearch.client.opensearch.core.BulkResponse;
 import org.opensearch.client.opensearch.core.bulk.BulkOperation;
 import org.opensearch.client.opensearch.core.bulk.CreateOperation;
 import org.opensearch.client.opensearch.core.bulk.DeleteOperation;
 import org.opensearch.client.opensearch.core.bulk.IndexOperation;
 import org.opensearch.client.opensearch.core.bulk.UpdateOperation;
+import org.opensearch.action.search.SearchRequest;
+import org.opensearch.action.search.SearchResponse;
 import org.opensearch.client.transport.TransportOptions;
+import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.ByteSizeUnit;
+import org.opensearch.common.xcontent.DeprecationHandler;
+import org.opensearch.common.xcontent.NamedXContentRegistry;
+import org.opensearch.common.xcontent.json.JsonXContent;
 import org.opensearch.dataprepper.aws.api.AwsCredentialsSupplier;
 import org.opensearch.dataprepper.expression.ExpressionEvaluationException;
 import org.opensearch.dataprepper.expression.ExpressionEvaluator;
@@ -46,13 +53,7 @@ import org.opensearch.dataprepper.plugins.common.opensearch.ServerlessNetworkPol
 import org.opensearch.dataprepper.plugins.common.opensearch.ServerlessOptionsFactory;
 import org.opensearch.dataprepper.plugins.dlq.DlqProvider;
 import org.opensearch.dataprepper.plugins.dlq.DlqWriter;
-import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.AccumulatingBulkRequest;
-import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.BulkApiWrapper;
-import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.BulkApiWrapperFactory;
-import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.BulkOperationWriter;
-import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.JavaClientAccumulatingCompressedBulkRequest;
-import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.JavaClientAccumulatingUncompressedBulkRequest;
-import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.SerializedJson;
+import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.*;
 import org.opensearch.dataprepper.plugins.sink.opensearch.dlq.FailedBulkOperation;
 import org.opensearch.dataprepper.plugins.sink.opensearch.dlq.FailedBulkOperationConverter;
 import org.opensearch.dataprepper.plugins.sink.opensearch.dlq.FailedDlqData;
@@ -65,6 +66,8 @@ import org.opensearch.dataprepper.plugins.sink.opensearch.index.IndexTemplateAPI
 import org.opensearch.dataprepper.plugins.sink.opensearch.index.IndexType;
 import org.opensearch.dataprepper.plugins.sink.opensearch.index.TemplateStrategy;
 import org.opensearch.dataprepper.plugins.source.opensearch.configuration.ServerlessOptions;
+import org.opensearch.search.SearchModule;
+import org.opensearch.search.builder.SearchSourceBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,13 +76,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.StringJoiner;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
@@ -107,6 +104,7 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
   private IndexManager indexManager;
   private Supplier<AccumulatingBulkRequest> bulkRequestSupplier;
   private BulkRetryStrategy bulkRetryStrategy;
+  private SearchRetryStrategy searchRetryStrategy;
   private BulkApiWrapper bulkApiWrapper;
   private final long bulkSize;
   private final long flushTimeout;
@@ -277,6 +275,7 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
             bulkRequestSupplier,
             pluginSetting);
 
+    this.searchRetryStrategy = new SearchRetryStrategy(restHighLevelClient, openSearchClient, maxRetries);
     objectMapper = new ObjectMapper();
     this.initialized = true;
     LOG.info("Initialized OpenSearch sink");
@@ -478,6 +477,152 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
     lastFlushTimeMap.put(threadId, lastFlushTime);
   }
 
+  @Override
+  public Object doOutputSync(final Collection<Record<Event>> records, boolean isQuery) {
+
+    if (!isQuery) {
+      return processBulkRequest(records);
+    }
+
+    return processQueryRequest(records);
+  }
+
+  private Object processQueryRequest(final Collection<Record<Event>> records) {
+    final Event event = records.stream().findFirst().get().getData();
+    return executeSearchRequest(event);
+//    SearchRequest searchRequest = new SearchRequest();
+//    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+//    searchSourceBuilder.query(
+//            QueryBuilders.wrapperQuery(requestBody)
+//    );
+//    searchSourceBuilder.sort(
+//            event.getJsonNode().get("sort")
+//    );
+//    searchRequest.source(searchSourceBuilder);
+//    searchRequest.indices(event.getMetadata().getAttribute("opensearch_index").toString());
+//    searchRequest.scroll(TimeValue.timeValueMinutes(10));
+
+
+
+
+
+//    try {
+//      return restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+//    } catch (Exception e) {
+//      // TODO: retry for status code 429 of OpenSearchException?
+//      LOG.error("Search request failed due to {}", e.getMessage());
+//    }
+//    // Blank/Dummy response
+//    SearchProfileShardResults profileResults = new SearchProfileShardResults(Collections.emptyMap());
+//    List<Suggest.Suggestion<? extends Suggest.Suggestion.Entry<? extends Suggest.Suggestion.Entry.Option>>> suggestions = new ArrayList();
+//    SearchResponseSections searchResponseSections =  new SearchResponseSections(SearchHits.empty(),
+//            new Aggregations(new ArrayList<>()), new Suggest(suggestions), false, false, profileResults, 0);
+//    return new SearchResponse(searchResponseSections, "scrollId", 1, 1, 0, 1,
+//            new ShardSearchFailure[0], new SearchResponse.Clusters(1, 1, 0));
+  }
+
+  private  BulkResponse processBulkRequest(final Collection<Record<Event>> records) {
+    final long threadId = Thread.currentThread().getId();
+    if (!bulkRequestMap.containsKey(threadId)) {
+      bulkRequestMap.put(threadId, bulkRequestSupplier.get());
+    }
+    if (!lastFlushTimeMap.containsKey(threadId)) {
+      lastFlushTimeMap.put(threadId, System.currentTimeMillis());
+    }
+
+    AccumulatingBulkRequest<BulkOperationWrapper, BulkRequest> bulkRequest = bulkRequestMap.get(threadId);
+    long lastFlushTime = lastFlushTimeMap.get(threadId);
+
+    for (final Record<Event> record : records) {
+      final Event event = record.getData();
+      final SerializedJson document = getDocument(event);
+      String indexName = configuredIndexAlias;
+      try {
+        indexName = indexManager.getIndexName(event.formatString(indexName, expressionEvaluator));
+      } catch (final Exception e) {
+        LOG.error("There was an exception when constructing the index name. Check the dlq if configured to see details about the affected Event: {}", e.getMessage());
+        dynamicIndexDroppedEvents.increment();
+        logFailureForDlqObjects(List.of(createDlqObjectFromEvent(event, indexName, e.getMessage())), e);
+        continue;
+      }
+
+      Long version = null;
+      String versionExpressionEvaluationResult = null;
+      if (versionExpression != null) {
+        try {
+          versionExpressionEvaluationResult = event.formatString(versionExpression, expressionEvaluator);
+          version = Long.valueOf(event.formatString(versionExpression, expressionEvaluator));
+        } catch (final NumberFormatException e) {
+          final String errorMessage = String.format(
+                  "Unable to convert the result of evaluating document_version '%s' to Long for an Event. The evaluation result '%s' must be a valid Long type", versionExpression, versionExpressionEvaluationResult
+          );
+          LOG.error(errorMessage);
+          //TODO: return failure object
+          //logFailureForDlqObjects(List.of(createDlqObjectFromEvent(event, indexName, errorMessage)), e);
+          dynamicDocumentVersionDroppedEvents.increment();
+        } catch (final RuntimeException e) {
+          final String errorMessage = String.format(
+                  "There was an exception when evaluating the document_version '%s': %s", versionExpression, e.getMessage());
+          LOG.error(errorMessage + " Check the dlq if configured to see more details about the affected Event");
+          //TODO: return failure object
+          //logFailureForDlqObjects(List.of(createDlqObjectFromEvent(event, indexName, errorMessage)), e);
+          dynamicDocumentVersionDroppedEvents.increment();
+        }
+      }
+      String eventAction = action;
+      if (actions != null) {
+        for (final Map<String, Object> actionEntry: actions) {
+          final String condition = (String)actionEntry.get("when");
+          eventAction = (String)actionEntry.get("type");
+          if (condition != null &&
+                  expressionEvaluator.evaluateConditional(condition, event)) {
+            break;
+          }
+        }
+      }
+      if (eventAction.contains("${")) {
+        eventAction = event.formatString(eventAction, expressionEvaluator);
+      }
+      if (OpenSearchBulkActions.fromOptionValue(eventAction) == null) {
+        LOG.error("Unknown action {}, skipping the event", eventAction);
+        invalidActionErrorsCounter.increment();
+        continue;
+      }
+
+      SerializedJson serializedJsonNode = null;
+      if (StringUtils.equals(action, OpenSearchBulkActions.UPDATE.toString()) ||
+              StringUtils.equals(action, OpenSearchBulkActions.UPSERT.toString()) ||
+              StringUtils.equals(action, OpenSearchBulkActions.DELETE.toString())) {
+        serializedJsonNode = SerializedJson.fromJsonNode(event.getJsonNode(), document);
+      }
+      BulkOperation bulkOperation;
+      try {
+        bulkOperation = getBulkOperationForAction(eventAction, document, version, indexName, event.getJsonNode());
+      } catch (final Exception e) {
+        LOG.error("An exception occurred while constructing the bulk operation for a document: ", e);
+        //TODO: return failure object
+        //logFailureForDlqObjects(List.of(createDlqObjectFromEvent(event, indexName, errorMessage)), e);
+        continue;
+      }
+      BulkOperationWrapper bulkOperationWrapper = new BulkOperationWrapper(bulkOperation, event.getEventHandle(), serializedJsonNode);
+      bulkRequest.addOperation(bulkOperationWrapper);
+    }
+
+    // Flush the remaining requests if flush timeout expired
+
+    BulkResponse bulkResponse = null;
+    if (bulkRequest.getOperationsCount() > 0) {
+      bulkResponse = executeBulkRequest(bulkRequest);
+      lastFlushTime = System.currentTimeMillis();
+      bulkRequest = bulkRequestSupplier.get();
+    }
+
+    bulkRequestMap.put(threadId, bulkRequest);
+    lastFlushTimeMap.put(threadId, lastFlushTime);
+
+    return bulkResponse;
+  }
+
   SerializedJson getDocument(final Event event) {
     String docId = null;
 
@@ -505,6 +650,43 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
     final String document = DocumentBuilder.build(event, documentRootKey, sinkContext.getTagsTargetKey(), sinkContext.getIncludeKeys(), sinkContext.getExcludeKeys());
 
     return SerializedJson.fromStringAndOptionals(document, docId, routingValue);
+  }
+
+  private SearchResponse executeSearchRequest(final Event event) {
+    return bulkRequestTimer.record(() -> {
+      try {
+        LOG.debug("Sending data to OpenSearch");
+        SearchModule searchModule = new SearchModule(Settings.EMPTY, false, Collections.emptyList());
+        NamedXContentRegistry namedXContentRegistry = new NamedXContentRegistry(searchModule.getNamedXContents());
+        SearchRequest searchRequest = new SearchRequest().indices(event.getMetadata().getAttribute("opensearch_index").toString())
+                .source(SearchSourceBuilder.fromXContent(
+                        JsonXContent.jsonXContent.createParser(namedXContentRegistry,
+                                DeprecationHandler.IGNORE_DEPRECATIONS, event.getJsonNode().toString()))).requestCache(true);
+        return searchRetryStrategy.executeSearchRequest(searchRequest);
+      } catch (final InterruptedException ex) {
+        LOG.error("Unexpected Interrupt:", ex);
+        bulkRequestErrorsCounter.increment();
+        Thread.currentThread().interrupt();
+        return null;
+      } catch (IOException e) {
+        return null;
+      }
+    });
+  }
+
+  private BulkResponse executeBulkRequest(AccumulatingBulkRequest accumulatingBulkRequest) {
+    return bulkRequestTimer.record(() -> {
+      try {
+        LOG.debug("Sending data to OpenSearch");
+        bulkRequestSizeBytesSummary.record(accumulatingBulkRequest.getEstimatedSizeInBytes());
+        return bulkRetryStrategy.executeBulkRequest(accumulatingBulkRequest);
+      } catch (final InterruptedException ex) {
+        LOG.error("Unexpected Interrupt:", ex);
+        bulkRequestErrorsCounter.increment();
+        Thread.currentThread().interrupt();
+        return null;
+      }
+    });
   }
 
   private void flushBatch(AccumulatingBulkRequest accumulatingBulkRequest) {

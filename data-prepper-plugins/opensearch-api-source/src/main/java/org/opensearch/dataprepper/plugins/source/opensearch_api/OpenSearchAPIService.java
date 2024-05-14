@@ -25,10 +25,11 @@ import com.linecorp.armeria.common.HttpStatus;
 import com.linecorp.armeria.server.annotation.Blocking;
 import com.linecorp.armeria.server.annotation.Post;
 import org.opensearch.client.opensearch.core.BulkResponse;
-import org.opensearch.action.search.SearchResponse;
+import org.opensearch.client.opensearch.core.SearchResponse;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Timer;
+import org.opensearch.dataprepper.pipeline.OpenSearchAPI;
 import org.opensearch.dataprepper.plugins.source.opensearch_api.codec.MultiLineJsonCodec;
 import org.opensearch.dataprepper.plugins.source.opensearch_api.model.BulkAPIRequestParams;
 import org.opensearch.dataprepper.plugins.source.opensearch_api.model.BulkActionRequest;
@@ -130,7 +131,12 @@ public class OpenSearchAPIService {
             throw new InvalidObjectException("Internal Error");
         }
         SearchResponse sinkResponse = (SearchResponse) sinkResponses.get("OpenSearchSink");
-        String response = objectMapper.writeValueAsString(sinkResponse);
+        StringWriter jsonObjectWriter = new StringWriter();
+        JsonGenerator generator = factory.createGenerator(jsonObjectWriter);
+        generator.setCodec(new ObjectMapper());
+        sinkResponse.serialize(new JacksonJsonpGenerator(generator), new JacksonJsonpMapper(objectMapper));
+        generator.flush();
+        String response = jsonObjectWriter.toString();
         return HttpResponse.of(response, HttpStatus.OK);
     }
 

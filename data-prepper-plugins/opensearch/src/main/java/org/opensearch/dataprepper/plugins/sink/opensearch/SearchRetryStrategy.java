@@ -1,22 +1,12 @@
 package org.opensearch.dataprepper.plugins.sink.opensearch;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linecorp.armeria.client.retry.Backoff;
-import org.opensearch.action.search.SearchResponseSections;
-import org.opensearch.action.search.ShardSearchFailure;
-import org.opensearch.client.RequestOptions;
 import org.opensearch.client.RestHighLevelClient;
-import org.opensearch.action.search.SearchRequest;
-import org.opensearch.action.search.SearchResponse;
 import org.opensearch.client.opensearch.OpenSearchClient;
-//import org.opensearch.client.opensearch.core.SearchRequest;
-//import org.opensearch.client.opensearch.core.SearchResponse;
+import org.opensearch.client.opensearch.core.SearchRequest;
+import org.opensearch.client.opensearch.core.SearchResponse;
 import org.opensearch.client.opensearch._types.OpenSearchException;
 import org.opensearch.rest.RestStatus;
-import org.opensearch.search.SearchHits;
-import org.opensearch.search.aggregations.Aggregations;
-import org.opensearch.search.profile.SearchProfileShardResults;
-import org.opensearch.search.suggest.Suggest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,12 +59,20 @@ public class SearchRetryStrategy {
                 }
             }
         } while (response != null);
-        return !responses.isEmpty() ? responses.get(responses.size()-1) : handleFailures(request, new RuntimeException(String.format("Number of retries reached the limit of max retries (configured value %d)", maxRetries)));
+        //return !responses.isEmpty() ? responses.get(responses.size()-1) : handleFailures(request, new RuntimeException(String.format("Number of retries reached the limit of max retries (configured value %d)", maxRetries)));
+
+        SearchResponse responseToClient = null;
+        if (!responses.isEmpty()) {
+            responseToClient = responses.get(responses.size() - 1);
+        } else {
+            responseToClient = handleFailures(request, new RuntimeException(String.format("Number of retries reached the limit of max retries (configured value %d)", maxRetries)));
+        }
+        return responseToClient;
     }
 
     private SearchResponse handleRetry(final SearchRequest request, int retryCount, List<SearchResponse> responses) throws InterruptedException {
         try {
-            responses.add(restHighLevelClient.search(request, RequestOptions.DEFAULT));
+            responses.add(openSearchClient.search(request, Object.class));
             return null;
         } catch (Exception e) {
             //incrementErrorCounters(e);
@@ -103,13 +101,14 @@ public class SearchRetryStrategy {
     }
 
     private SearchResponse handleFailures(final SearchRequest request, final Exception exceptionFromRequest) {
-        SearchProfileShardResults profileResults = new SearchProfileShardResults(Collections.emptyMap());
-        List<Suggest.Suggestion<? extends Suggest.Suggestion.Entry<? extends Suggest.Suggestion.Entry.Option>>> suggestions = new ArrayList<>();
-        SearchResponseSections searchResponseSections =  new SearchResponseSections(SearchHits.empty(),
-                new Aggregations(new ArrayList<>()), new Suggest(suggestions), false, false, profileResults, 0);
-
-        return new SearchResponse(searchResponseSections, "scrollId", 1, 1, 0, 1,
-                new ShardSearchFailure[0], new SearchResponse.Clusters(1, 1, 0));
+        return new SearchResponse.Builder<Object>().took(1).build();
+//        SearchProfileShardResults profileResults = new SearchProfileShardResults(Collections.emptyMap());
+//        List<Suggest.Suggestion<? extends Suggest.Suggestion.Entry<? extends Suggest.Suggestion.Entry.Option>>> suggestions = new ArrayList<>();
+//        SearchResponseSections searchResponseSections =  new SearchResponseSections(SearchHits.empty(),
+//                new Aggregations(new ArrayList<>()), new Suggest(suggestions), false, false, profileResults, 0);
+//
+//        return new SearchResponse(searchResponseSections, "scrollId", 1, 1, 0, 1,
+//                new ShardSearchFailure[0], new SearchResponse.Clusters(1, 1, 0));
     }
 
 //    private void incrementErrorCounters(final Exception e) {

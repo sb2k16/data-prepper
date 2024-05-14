@@ -10,10 +10,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Timer;
+import jakarta.json.stream.JsonParser;
 import org.apache.commons.lang3.StringUtils;
 import org.opensearch.client.RestHighLevelClient;
+import org.opensearch.client.json.JsonpMapper;
+import org.opensearch.client.json.jackson.JacksonJsonpMapper;
 import org.opensearch.client.opensearch.OpenSearchClient;
+import org.opensearch.client.opensearch._types.SortOptions;
 import org.opensearch.client.opensearch._types.VersionType;
+import org.opensearch.client.opensearch._types.query_dsl.Query;
 import org.opensearch.client.opensearch.core.BulkRequest;
 import org.opensearch.client.opensearch.core.BulkResponse;
 import org.opensearch.client.opensearch.core.bulk.BulkOperation;
@@ -21,14 +26,10 @@ import org.opensearch.client.opensearch.core.bulk.CreateOperation;
 import org.opensearch.client.opensearch.core.bulk.DeleteOperation;
 import org.opensearch.client.opensearch.core.bulk.IndexOperation;
 import org.opensearch.client.opensearch.core.bulk.UpdateOperation;
-import org.opensearch.action.search.SearchRequest;
-import org.opensearch.action.search.SearchResponse;
+import org.opensearch.client.opensearch.core.SearchRequest;
+import org.opensearch.client.opensearch.core.SearchResponse;
 import org.opensearch.client.transport.TransportOptions;
-import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.ByteSizeUnit;
-import org.opensearch.common.xcontent.DeprecationHandler;
-import org.opensearch.common.xcontent.NamedXContentRegistry;
-import org.opensearch.common.xcontent.json.JsonXContent;
 import org.opensearch.dataprepper.aws.api.AwsCredentialsSupplier;
 import org.opensearch.dataprepper.expression.ExpressionEvaluationException;
 import org.opensearch.dataprepper.expression.ExpressionEvaluator;
@@ -66,13 +67,12 @@ import org.opensearch.dataprepper.plugins.sink.opensearch.index.IndexTemplateAPI
 import org.opensearch.dataprepper.plugins.sink.opensearch.index.IndexType;
 import org.opensearch.dataprepper.plugins.sink.opensearch.index.TemplateStrategy;
 import org.opensearch.dataprepper.plugins.source.opensearch.configuration.ServerlessOptions;
-import org.opensearch.search.SearchModule;
-import org.opensearch.search.builder.SearchSourceBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
@@ -656,19 +656,28 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
     return bulkRequestTimer.record(() -> {
       try {
         LOG.debug("Sending data to OpenSearch");
-        SearchModule searchModule = new SearchModule(Settings.EMPTY, false, Collections.emptyList());
-        NamedXContentRegistry namedXContentRegistry = new NamedXContentRegistry(searchModule.getNamedXContents());
-        SearchRequest searchRequest = new SearchRequest().indices(event.getMetadata().getAttribute("opensearch_index").toString())
-                .source(SearchSourceBuilder.fromXContent(
-                        JsonXContent.jsonXContent.createParser(namedXContentRegistry,
-                                DeprecationHandler.IGNORE_DEPRECATIONS, event.getJsonNode().toString()))).requestCache(true);
+        final JsonpMapper jsonpMapper = new JacksonJsonpMapper();
+        final JsonParser jsonParser = jsonpMapper.jsonProvider().createParser(new StringReader(event.getJsonNode().get("query").toString()));
+
+        List<SortOptions> sortOptions = new ArrayList<>();
+        if (event.getJsonNode().get("sort") != null) {
+          for (Object sort : event.getJsonNode().get("sort")) {
+            JsonParser sortQueryJsonParser = jsonpMapper.jsonProvider().createParser(new StringReader(sort.toString()));
+            sortOptions.add(SortOptions._DESERIALIZER.deserialize(sortQueryJsonParser, jsonpMapper));
+          }
+        }
+
+        SearchRequest searchRequest = new SearchRequest.Builder()
+                .index(event.getMetadata().getAttribute("opensearch_index").toString())
+                .query(Query._DESERIALIZER.deserialize(jsonParser, jsonpMapper))
+                .sort(sortOptions)
+                .build();
+
         return searchRetryStrategy.executeSearchRequest(searchRequest);
       } catch (final InterruptedException ex) {
         LOG.error("Unexpected Interrupt:", ex);
         bulkRequestErrorsCounter.increment();
         Thread.currentThread().interrupt();
-        return null;
-      } catch (IOException e) {
         return null;
       }
     });

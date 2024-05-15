@@ -18,10 +18,10 @@ public class BulkActionRequest {
     }
 
     public String getId() {
-        return ((Map<String, Object>) this.requestModel.get(this.action)).get("_id").toString();
+        return ((Map<String, Object>) this.requestModel.get(this.action)).getOrDefault("_id", "").toString();
     }
     public String getIndex() {
-        return ((Map<String, Object>) this.requestModel.get(this.action)).get("_index").toString();
+        return ((Map<String, Object>) this.requestModel.get(this.action)).getOrDefault("_index", "").toString();
     }
 
     public String getAction() {

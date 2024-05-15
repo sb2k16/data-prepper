@@ -53,10 +53,14 @@ import java.nio.charset.StandardCharsets;
 */
 @Blocking
 public class OpenSearchAPIService {
-    public static final String REQUESTS_RECEIVED = "requestsReceived";
-    public static final String SUCCESS_REQUESTS = "successRequests";
-    public static final String PAYLOAD_SIZE = "payloadSize";
-    public static final String REQUEST_PROCESS_DURATION = "requestProcessDuration";
+    public static final String REQUESTS_RECEIVED_BULK = "requestsReceivedBulkAPI";
+    public static final String SUCCESS_REQUESTS_BULK = "successRequestsBulkAPI";
+    public static final String PAYLOAD_SIZE_BULK = "payloadSizeBulkAPI";
+    public static final String REQUESTS_RECEIVED_SEARCH = "requestsReceivedSearchAPI";
+    public static final String SUCCESS_REQUESTS_SEARCH = "successRequestsSearchAPI";
+    public static final String PAYLOAD_SIZE_SEARCH = "payloadSizeSearchAPI";
+    public static final String REQUEST_PROCESS_DURATION_SEARCH = "requestProcessDurationSearchAPI";
+    public static final String REQUEST_PROCESS_DURATION_BULK = "requestProcessDurationBulkAPI";
 
     private static final Logger LOG = LoggerFactory.getLogger(OpenSearchAPIService.class);
 
@@ -65,10 +69,14 @@ public class OpenSearchAPIService {
     private final OpenSearchAPISource source;
     private final Buffer<Record<Event>> buffer;
     private final int bufferWriteTimeoutInMillis;
-    private final Counter requestsReceivedCounter;
-    private final Counter successRequestsCounter;
-    private final DistributionSummary payloadSizeSummary;
-    private final Timer requestProcessDuration;
+    private final Counter requestsReceivedCounterBulk;
+    private final Counter successRequestsCounterBulk;
+    private final DistributionSummary payloadSizeSummaryBulk;
+    private final Counter requestsReceivedCounterSearch;
+    private final Counter successRequestsCounterSearch;
+    private final DistributionSummary payloadSizeSummarySearch;
+    private final Timer requestProcessDurationBulkAPI;
+    private final Timer requestProcessDurationSearchAPI;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private final JsonFactory factory = new JsonFactory();
@@ -80,36 +88,41 @@ public class OpenSearchAPIService {
         this.buffer = buffer;
         this.bufferWriteTimeoutInMillis = bufferWriteTimeoutInMillis;
 
-        requestsReceivedCounter = pluginMetrics.counter(REQUESTS_RECEIVED);
-        successRequestsCounter = pluginMetrics.counter(SUCCESS_REQUESTS);
-        payloadSizeSummary = pluginMetrics.summary(PAYLOAD_SIZE);
-        requestProcessDuration = pluginMetrics.timer(REQUEST_PROCESS_DURATION);
+        requestsReceivedCounterBulk = pluginMetrics.counter(REQUESTS_RECEIVED_BULK);
+        successRequestsCounterBulk = pluginMetrics.counter(SUCCESS_REQUESTS_BULK);
+        payloadSizeSummaryBulk = pluginMetrics.summary(PAYLOAD_SIZE_BULK);
+        requestsReceivedCounterSearch = pluginMetrics.counter(REQUESTS_RECEIVED_SEARCH);
+        successRequestsCounterSearch = pluginMetrics.counter(SUCCESS_REQUESTS_SEARCH);
+        payloadSizeSummarySearch = pluginMetrics.summary(PAYLOAD_SIZE_SEARCH);
+
+        requestProcessDurationSearchAPI = pluginMetrics.timer(REQUEST_PROCESS_DURATION_SEARCH);
+        requestProcessDurationBulkAPI = pluginMetrics.timer(REQUEST_PROCESS_DURATION_BULK);
     }
 
     @Post("/{index}/_bulk")
     public HttpResponse doPostIndex(final ServiceRequestContext serviceRequestContext, final AggregatedHttpRequest aggregatedHttpRequest, @Param("index") String index) throws Exception {
-        requestsReceivedCounter.increment();
-        payloadSizeSummary.record(aggregatedHttpRequest.content().length());
+        requestsReceivedCounterBulk.increment();
+        payloadSizeSummaryBulk.record(aggregatedHttpRequest.content().length());
 
         if(serviceRequestContext.isTimedOut()) {
             return HttpResponse.of(HttpStatus.REQUEST_TIMEOUT);
         }
         BulkAPIRequestParams bulkAPIRequestParams = BulkAPIRequestParams.builder().index(index).build();
-        return requestProcessDuration.recordCallable(() -> processBulkRequest(aggregatedHttpRequest, bulkAPIRequestParams));
+        return requestProcessDurationBulkAPI.recordCallable(() -> processBulkRequest(aggregatedHttpRequest, bulkAPIRequestParams));
     }
 
     @Post("/_bulk")
     @Put
     public HttpResponse doPostUpdate(final ServiceRequestContext serviceRequestContext, final AggregatedHttpRequest aggregatedHttpRequest) throws Exception {
-        requestsReceivedCounter.increment();
-        payloadSizeSummary.record(aggregatedHttpRequest.content().length());
+        requestsReceivedCounterBulk.increment();
+        payloadSizeSummaryBulk.record(aggregatedHttpRequest.content().length());
 
         if(serviceRequestContext.isTimedOut()) {
             return HttpResponse.of(HttpStatus.REQUEST_TIMEOUT);
         }
 
         BulkAPIRequestParams bulkAPIRequestParams = BulkAPIRequestParams.builder().build();
-        return requestProcessDuration.recordCallable(() -> processBulkRequest(aggregatedHttpRequest,bulkAPIRequestParams));
+        return requestProcessDurationBulkAPI.recordCallable(() -> processBulkRequest(aggregatedHttpRequest,bulkAPIRequestParams));
     }
 
     @Get("/{index}/_search")
@@ -119,8 +132,12 @@ public class OpenSearchAPIService {
             return HttpResponse.of(HttpStatus.REQUEST_TIMEOUT);
         }
 
-        requestsReceivedCounter.increment();
-        payloadSizeSummary.record(aggregatedHttpRequest.content().length());
+        return requestProcessDurationSearchAPI.recordCallable(() -> processSearchRequest(aggregatedHttpRequest, index));
+    }
+
+    private HttpResponse processSearchRequest(final AggregatedHttpRequest aggregatedHttpRequest, String index) throws Exception {
+        requestsReceivedCounterSearch.increment();
+        payloadSizeSummarySearch.record(aggregatedHttpRequest.content().length());
         JacksonEvent event = JacksonEvent.builder().withEventType(EventType.DOCUMENT.toString()).withData(new String(aggregatedHttpRequest.content().toInputStream().readAllBytes(), StandardCharsets.UTF_8)).build();
         event.getMetadata().setAttribute(MetadataKeyAttributes.EVENT_NAME_BULK_ACTION_METADATA_ATTRIBUTE_INDEX, index);
         List<Record<Event>> records = new ArrayList<>();
@@ -137,7 +154,8 @@ public class OpenSearchAPIService {
         sinkResponse.serialize(new JacksonJsonpGenerator(generator), new JacksonJsonpMapper(objectMapper));
         generator.flush();
         String response = jsonObjectWriter.toString();
-        return HttpResponse.of(response, HttpStatus.OK);
+        successRequestsCounterSearch.increment();
+        return HttpResponse.of(response);
     }
 
     private HttpResponse processBulkRequest(final AggregatedHttpRequest aggregatedHttpRequest, BulkAPIRequestParams bulkAPIRequestParams) throws Exception {
@@ -151,9 +169,9 @@ public class OpenSearchAPIService {
             throw new IOException("Bad request data format. Needs to be json array.", e.getCause());
         }
         List<Record<Event>> records = generateEventsFromInput(jsonList, bulkAPIRequestParams);
-//        if (shouldExecuteAsync(jsonList)) {
-//            return handleBulkRequestAsync(aggregatedHttpRequest, records);
-//        }
+        if (shouldExecuteAsync(jsonList)) {
+            return handleBulkRequestAsync(aggregatedHttpRequest, records);
+        }
         return handleBulkRequestSync(aggregatedHttpRequest, records);
     }
 
@@ -172,7 +190,7 @@ public class OpenSearchAPIService {
             LOG.error("Failed to write the request of size {} due to: {}", content.length(), e.getMessage());
             throw e;
         }
-        successRequestsCounter.increment();
+        successRequestsCounterBulk.increment();
         return HttpResponse.of(HttpStatus.OK);
     }
 
@@ -196,8 +214,8 @@ public class OpenSearchAPIService {
             LOG.error("Failed to write the request of size {} due to: {}", content.length(), e.getMessage());
             throw e;
         }
-        successRequestsCounter.increment();
-        return HttpResponse.of(response, HttpStatus.OK);
+        successRequestsCounterBulk.increment();
+        return HttpResponse.of(response);
     }
 
     private boolean shouldExecuteAsync(List<Map<String, Object>> jsonList) throws JsonProcessingException {

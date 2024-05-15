@@ -146,10 +146,10 @@ class OpenSearchAPISourceTest {
                 .add(TEST_PIPELINE_NAME).add(PLUGIN_NAME).toString();
         requestsReceivedMeasurements = MetricsTestUtil.getMeasurementList(
                 new StringJoiner(MetricNames.DELIMITER).add(metricNamePrefix)
-                        .add(OpenSearchAPIService.REQUESTS_RECEIVED).toString());
+                        .add(OpenSearchAPIService.REQUESTS_RECEIVED_BULK).toString());
         successRequestsMeasurements = MetricsTestUtil.getMeasurementList(
                 new StringJoiner(MetricNames.DELIMITER).add(metricNamePrefix)
-                        .add(OpenSearchAPIService.SUCCESS_REQUESTS).toString());
+                        .add(OpenSearchAPIService.SUCCESS_REQUESTS_BULK).toString());
         requestTimeoutsMeasurements = MetricsTestUtil.getMeasurementList(
                 new StringJoiner(MetricNames.DELIMITER).add(metricNamePrefix)
                         .add(HttpRequestExceptionHandler.REQUEST_TIMEOUTS).toString());
@@ -164,10 +164,10 @@ class OpenSearchAPISourceTest {
                         .add(LogThrottlingRejectHandler.REQUESTS_REJECTED).toString());
         requestProcessDurationMeasurements = MetricsTestUtil.getMeasurementList(
                 new StringJoiner(MetricNames.DELIMITER).add(metricNamePrefix)
-                        .add(OpenSearchAPIService.REQUEST_PROCESS_DURATION).toString());
+                        .add(OpenSearchAPIService.REQUEST_PROCESS_DURATION_BULK).toString());
         payloadSizeSummaryMeasurements = MetricsTestUtil.getMeasurementList(
                 new StringJoiner(MetricNames.DELIMITER).add(metricNamePrefix)
-                        .add(OpenSearchAPIService.PAYLOAD_SIZE).toString());
+                        .add(OpenSearchAPIService.PAYLOAD_SIZE_BULK).toString());
         serverConnectionsMeasurements = MetricsTestUtil.getMeasurementList(
                 new StringJoiner(MetricNames.DELIMITER).add(metricNamePrefix)
                         .add(OpenSearchAPISource.SERVER_CONNECTIONS).toString());

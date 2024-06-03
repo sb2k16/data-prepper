@@ -5,7 +5,10 @@
 
 package org.opensearch.dataprepper.model.sink;
 
+import org.opensearch.dataprepper.model.configuration.PluginModel;
+
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -19,16 +22,23 @@ public class SinkContext {
     private final List<String> includeKeys;
     private final List<String> excludeKeys;
 
+    private final List<PluginModel> responseActions;
 
-    public SinkContext(String tagsTargetKey, Collection<String> routes, List<String> includeKeys, List<String> excludeKeys) {
+    public SinkContext() {
+        this(null, Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+    }
+
+    public SinkContext(String tagsTargetKey, Collection<String> routes, List<String> includeKeys,
+                       List<String> excludeKeys, final List<PluginModel> responseActions) {
         this.tagsTargetKey = tagsTargetKey;
         this.routes = routes;
         this.includeKeys = includeKeys;
         this.excludeKeys = excludeKeys;
+        this.responseActions = responseActions;
     }
 
     public SinkContext(String tagsTargetKey) {
-        this(tagsTargetKey, null, null, null);
+        this(tagsTargetKey, null, null, null, null);
     }
 
     /**
@@ -56,5 +66,7 @@ public class SinkContext {
     public List<String> getExcludeKeys() {
         return excludeKeys;
     }
+
+    public List<PluginModel> getResponseActions() { return responseActions; }
 }
 

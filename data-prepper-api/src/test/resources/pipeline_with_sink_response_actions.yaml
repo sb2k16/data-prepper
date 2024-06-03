@@ -1,0 +1,16 @@
+version: "2.0"
+test-pipeline:
+  source:
+    testSource: null
+  processor:
+  - testProcessor: null
+  routes:
+  - my-route: "/a==b"
+  sink:
+  - testSink:
+      routes:
+      - "my-route"
+      response_actions:
+      - testResponseAction: null
+  workers: 8
+  delay: 50

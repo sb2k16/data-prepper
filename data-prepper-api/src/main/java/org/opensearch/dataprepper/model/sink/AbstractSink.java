@@ -22,6 +22,7 @@ public abstract class AbstractSink<T extends Record<?>> implements Sink<T> {
     protected static final int DEFAULT_MAX_RETRIES = 600;
     protected static final int DEFAULT_WAIT_TIME_MS = 1000;
     protected final PluginMetrics pluginMetrics;
+    protected final PluginSetting pluginSetting;
     private final Counter recordsInCounter;
     private final SinkLatencyMetrics latencyMetrics;
     private final Timer timeElapsedTimer;
@@ -30,6 +31,7 @@ public abstract class AbstractSink<T extends Record<?>> implements Sink<T> {
     private int waitTimeMs;
 
     public AbstractSink(final PluginSetting pluginSetting, int numRetries, int waitTimeMs) {
+        this.pluginSetting = pluginSetting;
         this.pluginMetrics = PluginMetrics.fromPluginSetting(pluginSetting);
         recordsInCounter = pluginMetrics.counter(MetricNames.RECORDS_IN);
         timeElapsedTimer = pluginMetrics.timer(MetricNames.TIME_ELAPSED);

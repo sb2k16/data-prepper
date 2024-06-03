@@ -36,6 +36,7 @@ class PipelinesDataFlowModelTest {
     private static final String RESOURCE_PATH_WITH_VERSION = "/pipeline_with_version.yaml";
     private static final String RESOURCE_PATH_WITH_DEPRECATED_EXTENSION = "/pipeline_with_depreciated_extension.yaml";
     private static final String RESOURCE_PATH_WITH_EXTENSION = "/pipeline_with_extension.yaml";
+    private static final String RESOURCE_PATH_WITH_SINK_RESPONSE_ACTION = "/pipeline_with_sink_response_actions.yaml";
     private ObjectMapper objectMapper;
 
     @BeforeEach
@@ -52,7 +53,7 @@ class PipelinesDataFlowModelTest {
 
         final PluginModel source = new PluginModel("testSource", (Map<String, Object>) null);
         final List<PluginModel> processors = Collections.singletonList(new PluginModel("testProcessor", (Map<String, Object>) null));
-        final List<SinkModel> sinks = Collections.singletonList(new SinkModel("testSink", Collections.emptyList(), null, Collections.emptyList(), Collections.emptyList(), null));
+        final List<SinkModel> sinks = Collections.singletonList(new SinkModel("testSink", Collections.emptyList(), null, Collections.emptyList(), Collections.emptyList(), null, Collections.emptyList()));
         final PipelineModel pipelineModel = new PipelineModel(source, null, processors, null, sinks, 8, 50);
 
         final PipelinesDataFlowModel pipelinesDataFlowModel = new PipelinesDataFlowModel(Collections.singletonMap(pipelineName, pipelineModel));
@@ -74,7 +75,7 @@ class PipelinesDataFlowModelTest {
         final DataPrepperVersion version = DataPrepperVersion.parse("2.0");
         final PluginModel source = new PluginModel("testSource", (Map<String, Object>) null);
         final List<PluginModel> processors = Collections.singletonList(new PluginModel("testProcessor", (Map<String, Object>) null));
-        final List<SinkModel> sinks = Collections.singletonList(new SinkModel("testSink", Collections.emptyList(), null, Collections.emptyList(), Collections.emptyList(), null));
+        final List<SinkModel> sinks = Collections.singletonList(new SinkModel("testSink", Collections.emptyList(), null, Collections.emptyList(), Collections.emptyList(), null, Collections.emptyList()));
         final PipelineModel pipelineModel = new PipelineModel(source, null, processors, null, sinks, 8, 50);
 
         final PipelinesDataFlowModel pipelinesDataFlowModel = new PipelinesDataFlowModel(version, Collections.singletonMap(pipelineName, pipelineModel));
@@ -90,12 +91,35 @@ class PipelinesDataFlowModelTest {
     }
 
     @Test
+    void testSerializing_PipelinesDataFlowModel_with_Response_Actions() throws IOException {
+        String pipelineName = "test-pipeline";
+
+        final DataPrepperVersion version = DataPrepperVersion.parse("2.0");
+        final PluginModel source = new PluginModel("testSource", (Map<String, Object>) null);
+        final List<PluginModel> processors = Collections.singletonList(new PluginModel("testProcessor", (Map<String, Object>) null));
+        final List<PluginModel> responseActions = Collections.singletonList(new PluginModel("testResponseAction", (Map<String, Object>) null));
+        final List<SinkModel> sinks = Collections.singletonList(new SinkModel("testSink", Collections.singletonList("my-route"), null, Collections.emptyList(), Collections.emptyList(), null, responseActions));
+        final PipelineModel pipelineModel = new PipelineModel(source, null, processors, Collections.singletonList(new ConditionalRoute("my-route", "/a==b")), sinks, 8, 50);
+
+        final PipelinesDataFlowModel pipelinesDataFlowModel = new PipelinesDataFlowModel(version, Collections.singletonMap(pipelineName, pipelineModel));
+
+        final String serializedString = objectMapper.writeValueAsString(pipelinesDataFlowModel);
+
+        InputStream inputStream = this.getClass().getResourceAsStream(RESOURCE_PATH_WITH_SINK_RESPONSE_ACTION);
+
+        final String expectedYaml = PluginModelTests.convertInputStreamToString(inputStream);
+
+        assertThat(serializedString, notNullValue());
+        assertThat(serializedString, equalTo(expectedYaml));
+    }
+
+    @Test
     void testSerializing_PipelinesDataFlowModel_skip_null_pipelineExtensions() throws IOException {
         String pipelineName = "test-pipeline";
 
         final PluginModel source = new PluginModel("testSource", (Map<String, Object>) null);
         final List<PluginModel> processors = Collections.singletonList(new PluginModel("testProcessor", (Map<String, Object>) null));
-        final List<SinkModel> sinks = Collections.singletonList(new SinkModel("testSink", Collections.emptyList(), null, Collections.emptyList(), Collections.emptyList(), null));
+        final List<SinkModel> sinks = Collections.singletonList(new SinkModel("testSink", Collections.emptyList(), null, Collections.emptyList(), Collections.emptyList(), null, Collections.emptyList()));
         final PipelineModel pipelineModel = new PipelineModel(source, null, processors, null, sinks, 8, 50);
 
         final PipelinesDataFlowModel pipelinesDataFlowModel = new PipelinesDataFlowModel(
@@ -117,7 +141,7 @@ class PipelinesDataFlowModelTest {
 
         final PluginModel source = new PluginModel("testSource", (Map<String, Object>) null);
         final List<PluginModel> preppers = Collections.singletonList(new PluginModel("testPrepper", (Map<String, Object>) null));
-        final List<SinkModel> sinks = Collections.singletonList(new SinkModel("testSink", Collections.singletonList("my-route"), null, Collections.emptyList(), Collections.emptyList(), null));
+        final List<SinkModel> sinks = Collections.singletonList(new SinkModel("testSink", Collections.singletonList("my-route"), null, Collections.emptyList(), Collections.emptyList(), null, Collections.emptyList()));
         final PipelineModel pipelineModel = new PipelineModel(source, null, preppers, Collections.singletonList(new ConditionalRoute("my-route", "/a==b")), sinks, 8, 50);
 
         final PipelinesDataFlowModel pipelinesDataFlowModel = new PipelinesDataFlowModel(Collections.singletonMap(pipelineName, pipelineModel));

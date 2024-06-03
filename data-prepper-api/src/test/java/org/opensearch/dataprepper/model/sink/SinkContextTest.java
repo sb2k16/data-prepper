@@ -7,6 +7,7 @@ package org.opensearch.dataprepper.model.sink;
 
 import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.jupiter.api.Test;
+import org.opensearch.dataprepper.model.configuration.PluginModel;
 
 import java.util.Collections;
 import java.util.List;
@@ -24,12 +25,13 @@ public class SinkContextTest {
         final List<String> testRoutes = Collections.emptyList();
         final List<String> testIncludeKeys = Collections.emptyList();
         final List<String> testExcludeKeys = Collections.emptyList();
-        sinkContext = new SinkContext(testTagsTargetKey, testRoutes, testIncludeKeys, testExcludeKeys);
+        final List<PluginModel> testResponseActions = Collections.emptyList();
+        sinkContext = new SinkContext(testTagsTargetKey, testRoutes, testIncludeKeys, testExcludeKeys, testResponseActions);
         assertThat(sinkContext.getTagsTargetKey(), equalTo(testTagsTargetKey));
         assertThat(sinkContext.getRoutes(), equalTo(testRoutes));
         assertThat(sinkContext.getIncludeKeys(), equalTo(testIncludeKeys));
         assertThat(sinkContext.getExcludeKeys(), equalTo(testExcludeKeys));
-
+        assertThat(sinkContext.getResponseActions(), equalTo(testResponseActions));
     }
 
     @Test
@@ -40,8 +42,22 @@ public class SinkContextTest {
         assertThat(sinkContext.getRoutes(), equalTo(null));
         assertThat(sinkContext.getIncludeKeys(), equalTo(null));
         assertThat(sinkContext.getExcludeKeys(), equalTo(null));
-
+        assertThat(sinkContext.getResponseActions(), equalTo(null));
     }
 
+    @Test
+    public void testSinkContextDefault() {
+        final String testTagsTargetKey = null;
+        final List<String> testRoutes = Collections.emptyList();
+        final List<String> testIncludeKeys = Collections.emptyList();
+        final List<String> testExcludeKeys = Collections.emptyList();
+        final List<PluginModel> testResponseActions = Collections.emptyList();
+        sinkContext = new SinkContext();
+        assertThat(sinkContext.getTagsTargetKey(), equalTo(testTagsTargetKey));
+        assertThat(sinkContext.getRoutes(), equalTo(testRoutes));
+        assertThat(sinkContext.getIncludeKeys(), equalTo(testIncludeKeys));
+        assertThat(sinkContext.getExcludeKeys(), equalTo(testExcludeKeys));
+        assertThat(sinkContext.getResponseActions(), equalTo(testResponseActions));
+    }
 }
 

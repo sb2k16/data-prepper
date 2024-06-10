@@ -9,6 +9,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.opensearch.dataprepper.model.CheckpointState;
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSet;
 import org.opensearch.dataprepper.model.buffer.Buffer;
@@ -43,6 +46,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.Future;
@@ -64,6 +68,7 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -393,9 +398,16 @@ class PipelineTests {
         private List<DataFlowComponent<Sink>> dataFlowComponents;
         private Source mockSource;
         private AcknowledgementSet acknowledgementSet;
+        private List<Processor> processors;
+        private Buffer mockBuffer;
 
         @BeforeEach
         void setUp() {
+            mockBuffer = mock(Buffer.class);
+            processors = IntStream.range(0, 3)
+                    .mapToObj(i -> mock(Processor.class))
+                    .collect(Collectors.toList());
+
             sinks = IntStream.range(0, 3)
                     .mapToObj(i -> mock(Sink.class))
                     .collect(Collectors.toList());
@@ -416,16 +428,15 @@ class PipelineTests {
         }
 
         private Pipeline createObjectUnderTest() {
-            return new Pipeline(TEST_PIPELINE_NAME, mockSource, mock(Buffer.class), Collections.emptyList(),
-                    dataFlowComponents, router, eventFactory, acknowledgementSetManager, sourceCoordinatorFactory, TEST_PROCESSOR_THREADS,
+            return new Pipeline(TEST_PIPELINE_NAME, mockSource, mockBuffer, Collections.singletonList(processors),
+                    dataFlowComponents, router, eventFactory, acknowledgementSetManager, sourceCoordinatorFactory, processors.size(),
                     TEST_READ_BATCH_TIMEOUT, processorShutdownTimeout, sinkShutdownTimeout, peerForwarderDrainTimeout);
         }
 
         @Test
         void publishToSinks_calls_route_with_Events_and_Sinks_verify_AcknowledgementSetManager() {
-
             doAnswer(a -> {
-                RouterCopyRecordStrategy routerCopyRecordStrategy = (RouterCopyRecordStrategy)a.getArgument(2);
+                RouterCopyRecordStrategy routerCopyRecordStrategy = a.getArgument(2);
                 Record rec = records.get(0);
                 event = mock(JacksonEvent.class);
                 eventHandle = mock(DefaultEventHandle.class);
@@ -437,16 +448,69 @@ class PipelineTests {
                 routerCopyRecordStrategy.getRecord(rec);
                 return null;
             }).when(router)
-              .route(anyCollection(), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
+              .route(eq(records), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
             Pipeline pipeline = createObjectUnderTest();
             when(mockSource.areAcknowledgementsEnabled()).thenReturn(true);
             pipeline.publishToSinks(records);
             verify(acknowledgementSetManager).acquireEventReference(any(DefaultEventHandle.class));
 
-            verify(router)
-                    .route(anyCollection(), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
+            verify(router).route(eq(records), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
         }
 
+        @ParameterizedTest
+//        @ValueSource(booleans = {false, true})
+        @CsvSource({
+                "false, true",
+                "false, false",
+                "true, true",
+                "true, true"})
+        void executeProcessorsAndSinks_calls_route_with_Events_and_Sinks_verify_AcknowledgementSetManager(final boolean testAllProcessors, final boolean acknowledgementsEnabled) {
+
+            doAnswer(a -> {
+                RouterCopyRecordStrategy routerCopyRecordStrategy = a.getArgument(2);
+                Record rec = records.get(0);
+                event = mock(JacksonEvent.class);
+                eventHandle = mock(DefaultEventHandle.class);
+                acknowledgementSet = mock(AcknowledgementSet.class);
+                when(event.getEventHandle()).thenReturn(eventHandle);
+                when(eventHandle.getAcknowledgementSet()).thenReturn(acknowledgementSet);
+                when(rec.getData()).thenReturn(event);
+                routerCopyRecordStrategy.getRecord(rec);
+                routerCopyRecordStrategy.getRecord(rec);
+                return null;
+            }).when(router)
+                    .route(anyCollection(), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
+
+            final CheckpointState checkpointState = mock(CheckpointState.class);
+            final Map.Entry<Collection, CheckpointState> readResult = Map.entry(records, checkpointState);
+            when(mockBuffer.read(TEST_READ_BATCH_TIMEOUT)).thenReturn(readResult);
+
+            for (Processor processor: processors) {
+                when(processor.execute(records)).thenReturn(records);
+            }
+
+            for (Sink sink: sinks) {
+                doNothing().when(sink).output(records);
+            }
+
+            Pipeline pipeline = createObjectUnderTest();
+            when(mockSource.areAcknowledgementsEnabled()).thenReturn(acknowledgementsEnabled);
+
+            if (testAllProcessors) {
+                pipeline.executeAllProcessorsAndSinks();
+            } else {
+                pipeline.runProcessorsAndSinks(processors);
+            }
+
+            if (acknowledgementsEnabled) {
+                verify(acknowledgementSetManager).acquireEventReference(any(DefaultEventHandle.class));
+            }
+            verify(router).route(eq(records), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
+
+            for (Processor processor: processors) {
+                verify(processor).execute(records);
+            }
+        }
 
         @Test
         void publishToSinks_calls_route_with_Events_and_Sinks_verify_InactiveAcknowledgementSetManager() {
@@ -466,8 +530,7 @@ class PipelineTests {
             createObjectUnderTest().publishToSinks(records);
             verifyNoInteractions(acknowledgementSetManager);
 
-            verify(router)
-                    .route(anyCollection(), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
+            verify(router).route(anyCollection(), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
         }
 
         @Test
@@ -475,8 +538,7 @@ class PipelineTests {
 
             createObjectUnderTest().publishToSinks(records);
 
-            verify(router)
-                    .route(anyCollection(), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
+            verify(router).route(anyCollection(), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
         }
 
         @Nested

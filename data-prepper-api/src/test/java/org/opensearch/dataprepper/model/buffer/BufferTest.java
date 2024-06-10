@@ -65,4 +65,10 @@ class BufferTest {
 
     }
 
+    @Test
+    void isZeroBuffer() {
+        assertThat(createObjectUnderTest().isZeroBuffer(), equalTo(false));
+    }
+
+
 }

@@ -65,6 +65,7 @@ dependencyResolutionManagement {
             library('hadoop-mapreduce', 'org.apache.hadoop', 'hadoop-mapreduce-client-core').versionRef('hadoop')
             version('avro', '1.11.3')
             library('avro-core', 'org.apache.avro', 'avro').versionRef('avro')
+            library('caffeine', 'com.github.ben-manes.caffeine', 'caffeine').version('3.1.8')
         }
         testLibs {
             version('junit', '5.8.2')
@@ -169,9 +170,10 @@ include 'data-prepper-plugins:dissect-processor'
 include 'data-prepper-plugins:dynamodb-source'
 include 'data-prepper-plugins:decompress-processor'
 include 'data-prepper-plugins:split-event-processor'
-include 'data-prepper-plugins:http-common'
 include 'data-prepper-plugins:flatten-processor'
 include 'data-prepper-plugins:mongodb'
 include 'data-prepper-plugins:rds-source'
 include 'data-prepper-plugins:http-source-common'
 include 'data-prepper-plugins:opensearch-api-source'
+include 'data-prepper-plugins:http-common'
+include 'data-prepper-plugins:lambda-sink'

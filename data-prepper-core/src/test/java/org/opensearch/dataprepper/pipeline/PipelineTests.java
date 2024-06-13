@@ -9,15 +9,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
-import org.opensearch.dataprepper.model.CheckpointState;
-import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSet;
+import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.model.buffer.Buffer;
 import org.opensearch.dataprepper.model.configuration.PluginSetting;
-import org.opensearch.dataprepper.model.event.EventFactory;
 import org.opensearch.dataprepper.model.event.DefaultEventHandle;
+import org.opensearch.dataprepper.model.event.EventFactory;
 import org.opensearch.dataprepper.model.event.JacksonEvent;
 import org.opensearch.dataprepper.model.processor.Processor;
 import org.opensearch.dataprepper.model.record.Record;
@@ -33,11 +30,11 @@ import org.opensearch.dataprepper.pipeline.common.TestProcessor;
 import org.opensearch.dataprepper.pipeline.router.Router;
 import org.opensearch.dataprepper.pipeline.router.RouterCopyRecordStrategy;
 import org.opensearch.dataprepper.pipeline.router.RouterGetRecordStrategy;
-import org.opensearch.dataprepper.plugins.test.TestSink;
-import org.opensearch.dataprepper.plugins.test.TestSource;
 import org.opensearch.dataprepper.plugins.TestSourceWithCoordination;
 import org.opensearch.dataprepper.plugins.TestSourceWithEnhancedCoordination;
 import org.opensearch.dataprepper.plugins.buffer.blockingbuffer.BlockingBuffer;
+import org.opensearch.dataprepper.plugins.test.TestSink;
+import org.opensearch.dataprepper.plugins.test.TestSource;
 import org.opensearch.dataprepper.sourcecoordination.SourceCoordinatorFactory;
 
 import java.time.Duration;
@@ -46,7 +43,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.Future;
@@ -68,7 +64,6 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -455,61 +450,6 @@ class PipelineTests {
             verify(acknowledgementSetManager).acquireEventReference(any(DefaultEventHandle.class));
 
             verify(router).route(eq(records), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
-        }
-
-        @ParameterizedTest
-//        @ValueSource(booleans = {false, true})
-        @CsvSource({
-                "false, true",
-                "false, false",
-                "true, true",
-                "true, true"})
-        void executeProcessorsAndSinks_calls_route_with_Events_and_Sinks_verify_AcknowledgementSetManager(final boolean testAllProcessors, final boolean acknowledgementsEnabled) {
-
-            doAnswer(a -> {
-                RouterCopyRecordStrategy routerCopyRecordStrategy = a.getArgument(2);
-                Record rec = records.get(0);
-                event = mock(JacksonEvent.class);
-                eventHandle = mock(DefaultEventHandle.class);
-                acknowledgementSet = mock(AcknowledgementSet.class);
-                when(event.getEventHandle()).thenReturn(eventHandle);
-                when(eventHandle.getAcknowledgementSet()).thenReturn(acknowledgementSet);
-                when(rec.getData()).thenReturn(event);
-                routerCopyRecordStrategy.getRecord(rec);
-                routerCopyRecordStrategy.getRecord(rec);
-                return null;
-            }).when(router)
-                    .route(anyCollection(), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
-
-            final CheckpointState checkpointState = mock(CheckpointState.class);
-            final Map.Entry<Collection, CheckpointState> readResult = Map.entry(records, checkpointState);
-            when(mockBuffer.read(TEST_READ_BATCH_TIMEOUT)).thenReturn(readResult);
-
-            for (Processor processor: processors) {
-                when(processor.execute(records)).thenReturn(records);
-            }
-
-            for (Sink sink: sinks) {
-                doNothing().when(sink).output(records);
-            }
-
-            Pipeline pipeline = createObjectUnderTest();
-            when(mockSource.areAcknowledgementsEnabled()).thenReturn(acknowledgementsEnabled);
-
-            if (testAllProcessors) {
-                pipeline.executeAllProcessorsAndSinks();
-            } else {
-                pipeline.runProcessorsAndSinks(processors);
-            }
-
-            if (acknowledgementsEnabled) {
-                verify(acknowledgementSetManager).acquireEventReference(any(DefaultEventHandle.class));
-            }
-            verify(router).route(eq(records), eq(dataFlowComponents), any(RouterGetRecordStrategy.class), any(BiConsumer.class));
-
-            for (Processor processor: processors) {
-                verify(processor).execute(records);
-            }
         }
 
         @Test

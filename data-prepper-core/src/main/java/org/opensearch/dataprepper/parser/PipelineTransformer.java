@@ -24,12 +24,13 @@ import org.opensearch.dataprepper.model.event.EventFactory;
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.pipeline.Pipeline;
 import org.opensearch.dataprepper.pipeline.PipelineConnector;
+import org.opensearch.dataprepper.pipeline.PipelineRunner;
 import org.opensearch.dataprepper.pipeline.parser.PipelineConfigurationValidator;
 import org.opensearch.dataprepper.pipeline.parser.model.PipelineConfiguration;
 import org.opensearch.dataprepper.pipeline.parser.model.SinkContextPluginSetting;
 import org.opensearch.dataprepper.pipeline.router.Router;
 import org.opensearch.dataprepper.pipeline.router.RouterFactory;
-import org.opensearch.dataprepper.pipeline.zerobuffer.AbstractZeroBuffer;
+import org.opensearch.dataprepper.pipeline.buffer.AbstractSynchronizedBuffer;
 import org.opensearch.dataprepper.sourcecoordination.SourceCoordinatorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -158,8 +159,8 @@ public class PipelineTransformer {
                     dataPrepperConfiguration.getProcessorShutdownTimeout(), dataPrepperConfiguration.getSinkShutdownTimeout(),
                     getPeerForwarderDrainTimeout(dataPrepperConfiguration));
 
-            if (buffer.isZeroBuffer() && pipelineDefinedBuffer instanceof AbstractZeroBuffer) {
-                ((AbstractZeroBuffer<?>) pipelineDefinedBuffer).setPipeline(pipeline);
+            if (pipelineDefinedBuffer instanceof AbstractSynchronizedBuffer) {
+                ((AbstractSynchronizedBuffer<?>) pipelineDefinedBuffer).setPipelineRunner(new PipelineRunner(pipeline));
             }
 
             pipelineMap.put(pipelineName, pipeline);

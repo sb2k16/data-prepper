@@ -122,8 +122,4 @@ public interface Buffer<T extends Record<?>> {
      */
     default void shutdown() {
     }
-
-    // Zero Buffer functionality
-    default boolean isZeroBuffer() { return false; }
-
 }

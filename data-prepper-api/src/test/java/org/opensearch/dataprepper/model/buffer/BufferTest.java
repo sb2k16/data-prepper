@@ -64,11 +64,4 @@ class BufferTest {
         assertThrows(UnsupportedOperationException.class, () -> buffer.writeBytes(bytes, "", 10));
 
     }
-
-    @Test
-    void isZeroBuffer() {
-        assertThat(createObjectUnderTest().isZeroBuffer(), equalTo(false));
-    }
-
-
 }

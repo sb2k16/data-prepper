@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package org.opensearch.dataprepper.plugins.buffer.zerobuffer;
+package org.opensearch.dataprepper.pipeline.buffer;
 
+import io.micrometer.core.instrument.Counter;
 import org.opensearch.dataprepper.metrics.MetricNames;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
 import org.opensearch.dataprepper.model.CheckpointState;
@@ -12,38 +13,35 @@ import org.opensearch.dataprepper.model.annotations.DataPrepperPlugin;
 import org.opensearch.dataprepper.model.buffer.Buffer;
 import org.opensearch.dataprepper.model.configuration.PluginSetting;
 import org.opensearch.dataprepper.model.record.Record;
-import org.opensearch.dataprepper.pipeline.zerobuffer.AbstractZeroBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import io.micrometer.core.instrument.Counter;
 
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-@DataPrepperPlugin(name = "zero_buffer", pluginType = Buffer.class)
-public class ZeroBuffer<T extends Record<?>> extends AbstractZeroBuffer<T> {
-    private static final Logger LOG = LoggerFactory.getLogger(ZeroBuffer.class);
-    private static final String PLUGIN_NAME = "zero_buffer";
-    private static final String ZERO_BUFFER = "ZeroBuffer";
+@DataPrepperPlugin(name = "synchronized_buffer", pluginType = Buffer.class)
+public class SynchronizedBuffer<T extends Record<?>> extends AbstractSynchronizedBuffer<T> {
+    private static final Logger LOG = LoggerFactory.getLogger(SynchronizedBuffer.class);
+    private static final String SYNCHRONIZED_BUFFER = "SynchronizedBuffer";
     private final String pipelineName;
     private final ThreadLocal<Collection<T>> threadLocalStore;
     private final Counter recordsWrittenCounter;
+    private final Counter recordsReadCounter;
 
-    public ZeroBuffer(final String pipelineName) {
+    public SynchronizedBuffer(final String pipelineName) {
         this.pipelineName = pipelineName;
         this.threadLocalStore = new ThreadLocal<>();
 
-        PluginMetrics pluginMetrics = PluginMetrics.fromNames(ZERO_BUFFER, pipelineName);
-
+        PluginMetrics pluginMetrics = PluginMetrics.fromNames(SYNCHRONIZED_BUFFER, pipelineName);
         this.recordsWrittenCounter = pluginMetrics.counter(MetricNames.RECORDS_WRITTEN);
+        this.recordsReadCounter = pluginMetrics.counter(MetricNames.RECORDS_READ);
     }
 
-    public ZeroBuffer(final PluginSetting pluginSetting) {
+    public SynchronizedBuffer(final PluginSetting pluginSetting) {
         this(checkNotNull(pluginSetting, "PluginSetting cannot be null").getPipelineName());
     }
 
@@ -57,14 +55,13 @@ public class ZeroBuffer<T extends Record<?>> extends AbstractZeroBuffer<T> {
             threadLocalStore.set(new ArrayList<>());
         }
         threadLocalStore.get().add(record);
-        getPipeline().executeAllProcessorsAndSinks();
+        getPipelineRunner().runAllProcessorsAndPublishToSinks();
     }
 
     @Override
     public void writeAll(Collection<T> records, int timeoutInMillis) throws Exception {
         threadLocalStore.set(records);
-
-        getPipeline().executeAllProcessorsAndSinks();
+        getPipelineRunner().runAllProcessorsAndPublishToSinks();
     }
 
     @Override
@@ -76,6 +73,7 @@ public class ZeroBuffer<T extends Record<?>> extends AbstractZeroBuffer<T> {
         Collection<T> records = threadLocalStore.get();
         threadLocalStore.remove();
         final CheckpointState checkpointState = new CheckpointState(records.size());
+        recordsReadCounter.increment(records.size() * 1.0);
         return new AbstractMap.SimpleEntry<>(records, checkpointState);
     }
 
@@ -84,22 +82,8 @@ public class ZeroBuffer<T extends Record<?>> extends AbstractZeroBuffer<T> {
 
     }
 
-    /**
-     * Returns the default PluginSetting object with default values.
-     * @return PluginSetting
-     */
-    public static PluginSetting getDefaultPluginSettings() {
-        final Map<String, Object> settings = new HashMap<>();
-        return new PluginSetting(PLUGIN_NAME, settings);
-    }
-
     @Override
     public boolean isEmpty() {
         return (threadLocalStore.get() == null || threadLocalStore.get().isEmpty());
-    }
-
-    @Override
-    public boolean isZeroBuffer() {
-        return true;
     }
 }

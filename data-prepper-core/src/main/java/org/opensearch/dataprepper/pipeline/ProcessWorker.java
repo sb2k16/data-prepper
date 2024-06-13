@@ -23,20 +23,21 @@ public class ProcessWorker implements Runnable {
     private final Buffer readBuffer;
     private final List<Processor> processors;
     private final Pipeline pipeline;
+    private final PipelineRunner pipelineRunner;
     private PluginMetrics pluginMetrics;
     private final Counter invalidEventHandlesCounter;
-    private boolean acknowledgementsEnabled;
 
     public ProcessWorker(
             final Buffer readBuffer,
             final List<Processor> processors,
-            final Pipeline pipeline) {
+            final Pipeline pipeline,
+            final PipelineRunner pipelineRunner) {
         this.readBuffer = readBuffer;
         this.processors = processors;
         this.pipeline = pipeline;
         this.pluginMetrics = PluginMetrics.fromNames("ProcessWorker", pipeline.getName());
         this.invalidEventHandlesCounter = pluginMetrics.counter(INVALID_EVENT_HANDLES);
-        this.acknowledgementsEnabled = pipeline.getSource().areAcknowledgementsEnabled() || readBuffer.areAcknowledgementsEnabled();
+        this.pipelineRunner = pipelineRunner;
     }
 
     @Override
@@ -81,7 +82,7 @@ public class ProcessWorker implements Runnable {
 
     private void doRun() {
         try {
-            pipeline.runProcessorsAndSinks(processors);
+            pipelineRunner.runProcessorsAndPublishToSinks(processors);
         } catch (InvalidEventHandleException ex) {
             invalidEventHandlesCounter.increment();
             throw ex;

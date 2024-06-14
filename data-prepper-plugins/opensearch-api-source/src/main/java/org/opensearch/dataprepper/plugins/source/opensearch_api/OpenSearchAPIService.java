@@ -140,6 +140,7 @@ public class OpenSearchAPIService {
         payloadSizeSummarySearch.record(aggregatedHttpRequest.content().length());
         JacksonEvent event = JacksonEvent.builder().withEventType(EventType.DOCUMENT.toString()).withData(new String(aggregatedHttpRequest.content().toInputStream().readAllBytes(), StandardCharsets.UTF_8)).build();
         event.getMetadata().setAttribute(MetadataKeyAttributes.EVENT_NAME_BULK_ACTION_METADATA_ATTRIBUTE_INDEX, index);
+        event.getMetadata().setAttribute("mode", "sync");
         List<Record<Event>> records = new ArrayList<>();
         records.add(new Record<>(event));
         Map<String, Object> sinkResponses = this.source.getPipeline().executeRequestFromSourceInline(records, true);
@@ -168,10 +169,11 @@ public class OpenSearchAPIService {
             LOG.error("Failed to parse the request of size {} due to: {}", content.length(), e.getMessage());
             throw new IOException("Bad request data format. Needs to be json array.", e.getCause());
         }
-        List<Record<Event>> records = generateEventsFromInput(jsonList, bulkAPIRequestParams);
-        if (shouldExecuteAsync(jsonList)) {
-            return handleBulkRequestAsync(aggregatedHttpRequest, records);
-        }
+        final boolean isAsyncMode = shouldExecuteAsync(jsonList);
+        List<Record<Event>> records = generateEventsFromInput(jsonList, bulkAPIRequestParams, isAsyncMode);
+//        if (shouldExecuteAsync(jsonList)) {
+//            return handleBulkRequestAsync(aggregatedHttpRequest, records);
+//        }
         return handleBulkRequestSync(aggregatedHttpRequest, records);
     }
 
@@ -202,6 +204,9 @@ public class OpenSearchAPIService {
                 Map<String, Object> sinkResponses = this.source.getPipeline().executeRequestFromSourceInline(records, false);
                 if (sinkResponses.isEmpty()) {
                     throw new InvalidObjectException("Internal Error");
+                }
+                if (sinkResponses.get("OpenSearchSink") == null) {
+                    return HttpResponse.of(HttpStatus.OK);
                 }
                 BulkResponse sinkResponse = (BulkResponse) sinkResponses.get("OpenSearchSink");
                 StringWriter jsonObjectWriter = new StringWriter();
@@ -234,7 +239,7 @@ public class OpenSearchAPIService {
         return true;
     }
 
-    private List<Record<Event>> generateEventsFromInput(List<Map<String, Object>> jsonList, BulkAPIRequestParams bulkAPIRequestParams) throws JsonProcessingException {
+    private List<Record<Event>> generateEventsFromInput(List<Map<String, Object>> jsonList, BulkAPIRequestParams bulkAPIRequestParams, final boolean isAsyncMode) throws JsonProcessingException {
         List<Record<Event>> records = new ArrayList<>();
 
         int idx = 0;
@@ -252,6 +257,9 @@ public class OpenSearchAPIService {
                 event.getMetadata().setAttribute(MetadataKeyAttributes.EVENT_NAME_BULK_ACTION_METADATA_ATTRIBUTE, request.getAction());
                 event.getMetadata().setAttribute(MetadataKeyAttributes.EVENT_NAME_BULK_ACTION_METADATA_ATTRIBUTE_INDEX,
                         request.getIndex().isBlank() || request.getIndex().isEmpty() ? bulkAPIRequestParams.getIndex() : request.getIndex());
+
+                event.getMetadata().setAttribute("mode", isAsyncMode ? "async" : "sync");
+
                 String docId = request.getId();
                 if (!StringUtils.isBlank(docId) && !StringUtils.isEmpty(docId)) {
                     event.getMetadata().setAttribute(MetadataKeyAttributes.EVENT_NAME_BULK_ACTION_METADATA_ATTRIBUTE_ID, request.getId());

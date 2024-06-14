@@ -86,7 +86,9 @@ import java.util.stream.Collectors;
 @DataPrepperPlugin(name = "opensearch", pluginType = Sink.class)
 public class OpenSearchSink extends AbstractSink<Record<Event>> {
   public static final String BULKREQUEST_LATENCY = "bulkRequestLatency";
+  public static final String SEARCHREQUEST_LATENCY = "searchRequestLatency";
   public static final String BULKREQUEST_ERRORS = "bulkRequestErrors";
+  public static final String SEARCHREQUEST_ERRORS = "searchRequestErrors";
   public static final String INVALID_ACTION_ERRORS = "invalidActionErrors";
   public static final String BULKREQUEST_SIZE_BYTES = "bulkRequestSizeBytes";
   public static final String DYNAMIC_INDEX_DROPPED_EVENTS = "dynamicIndexDroppedEvents";
@@ -122,7 +124,9 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
   private final String versionExpression;
 
   private final Timer bulkRequestTimer;
+  private final Timer searchRequestTimer;
   private final Counter bulkRequestErrorsCounter;
+  private final Counter searchRequestErrorsCounter;
   private final Counter invalidActionErrorsCounter;
   private final Counter dynamicIndexDroppedEvents;
   private final DistributionSummary bulkRequestSizeBytesSummary;
@@ -154,7 +158,9 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
     this.sinkContext = sinkContext != null ? sinkContext : new SinkContext(null, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
     this.expressionEvaluator = expressionEvaluator;
     bulkRequestTimer = pluginMetrics.timer(BULKREQUEST_LATENCY);
+    searchRequestTimer = pluginMetrics.timer(SEARCHREQUEST_LATENCY);
     bulkRequestErrorsCounter = pluginMetrics.counter(BULKREQUEST_ERRORS);
+    searchRequestErrorsCounter = pluginMetrics.counter(SEARCHREQUEST_ERRORS);
     invalidActionErrorsCounter = pluginMetrics.counter(INVALID_ACTION_ERRORS);
     dynamicIndexDroppedEvents = pluginMetrics.counter(DYNAMIC_INDEX_DROPPED_EVENTS);
     bulkRequestSizeBytesSummary = pluginMetrics.summary(BULKREQUEST_SIZE_BYTES);
@@ -480,6 +486,8 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
   @Override
   public Object doOutputSync(final Collection<Record<Event>> records, boolean isQuery) {
 
+    if (records.isEmpty()) return null;
+
     if (!isQuery) {
       return processBulkRequest(records);
     }
@@ -490,35 +498,6 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
   private Object processQueryRequest(final Collection<Record<Event>> records) {
     final Event event = records.stream().findFirst().get().getData();
     return executeSearchRequest(event);
-//    SearchRequest searchRequest = new SearchRequest();
-//    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
-//    searchSourceBuilder.query(
-//            QueryBuilders.wrapperQuery(requestBody)
-//    );
-//    searchSourceBuilder.sort(
-//            event.getJsonNode().get("sort")
-//    );
-//    searchRequest.source(searchSourceBuilder);
-//    searchRequest.indices(event.getMetadata().getAttribute("opensearch_index").toString());
-//    searchRequest.scroll(TimeValue.timeValueMinutes(10));
-
-
-
-
-
-//    try {
-//      return restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
-//    } catch (Exception e) {
-//      // TODO: retry for status code 429 of OpenSearchException?
-//      LOG.error("Search request failed due to {}", e.getMessage());
-//    }
-//    // Blank/Dummy response
-//    SearchProfileShardResults profileResults = new SearchProfileShardResults(Collections.emptyMap());
-//    List<Suggest.Suggestion<? extends Suggest.Suggestion.Entry<? extends Suggest.Suggestion.Entry.Option>>> suggestions = new ArrayList();
-//    SearchResponseSections searchResponseSections =  new SearchResponseSections(SearchHits.empty(),
-//            new Aggregations(new ArrayList<>()), new Suggest(suggestions), false, false, profileResults, 0);
-//    return new SearchResponse(searchResponseSections, "scrollId", 1, 1, 0, 1,
-//            new ShardSearchFailure[0], new SearchResponse.Clusters(1, 1, 0));
   }
 
   private  BulkResponse processBulkRequest(final Collection<Record<Event>> records) {
@@ -653,7 +632,7 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
   }
 
   private SearchResponse executeSearchRequest(final Event event) {
-    return bulkRequestTimer.record(() -> {
+    return searchRequestTimer.record(() -> {
       try {
         LOG.debug("Sending data to OpenSearch");
         final JsonpMapper jsonpMapper = new JacksonJsonpMapper();
@@ -676,7 +655,7 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
         return searchRetryStrategy.executeSearchRequest(searchRequest);
       } catch (final InterruptedException ex) {
         LOG.error("Unexpected Interrupt:", ex);
-        bulkRequestErrorsCounter.increment();
+        searchRequestErrorsCounter.increment();
         Thread.currentThread().interrupt();
         return null;
       }

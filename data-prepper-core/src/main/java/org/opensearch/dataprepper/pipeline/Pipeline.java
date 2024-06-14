@@ -377,7 +377,7 @@ public class Pipeline {
         Map<String, Object> responses = new HashMap<>();
         router.route(records, sinks, getRecordStrategy, (sink, events) -> {
             sink.updateLatencyMetrics(events);
-            responses.put(sink.getClass().getSimpleName(), sink.outputSync(records, isQuery));
+            responses.put(sink.getClass().getSimpleName(), sink.outputSync(events, isQuery));
         });
         return responses;
     }

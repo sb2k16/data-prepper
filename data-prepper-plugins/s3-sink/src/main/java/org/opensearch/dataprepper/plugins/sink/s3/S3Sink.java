@@ -152,4 +152,10 @@ public class S3Sink extends AbstractSink<Record<Event>> {
     public void doOutput(final Collection<Record<Event>> records) {
         s3SinkService.output(records);
     }
+
+    @Override
+    public Object doOutputSync(final Collection<Record<Event>> records, boolean isQuery) {
+        s3SinkService.output(records);
+        return "OK";
+    }
 }

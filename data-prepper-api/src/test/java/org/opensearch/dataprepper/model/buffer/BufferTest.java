@@ -64,5 +64,4 @@ class BufferTest {
         assertThrows(UnsupportedOperationException.class, () -> buffer.writeBytes(bytes, "", 10));
 
     }
-
 }

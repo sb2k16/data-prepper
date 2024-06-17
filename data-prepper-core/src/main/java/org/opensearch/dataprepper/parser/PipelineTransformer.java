@@ -8,6 +8,7 @@ package org.opensearch.dataprepper.parser;
 import org.opensearch.dataprepper.breaker.CircuitBreakerManager;
 import org.opensearch.dataprepper.model.annotations.SingleThread;
 import org.opensearch.dataprepper.model.buffer.Buffer;
+import org.opensearch.dataprepper.model.buffer.DefinesBuffer;
 import org.opensearch.dataprepper.model.configuration.PipelinesDataFlowModel;
 import org.opensearch.dataprepper.model.configuration.PluginSetting;
 import org.opensearch.dataprepper.model.peerforwarder.RequiresPeerForwarding;
@@ -24,11 +25,13 @@ import org.opensearch.dataprepper.model.event.EventFactory;
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.pipeline.Pipeline;
 import org.opensearch.dataprepper.pipeline.PipelineConnector;
+import org.opensearch.dataprepper.pipeline.PipelineRunner;
 import org.opensearch.dataprepper.pipeline.parser.PipelineConfigurationValidator;
 import org.opensearch.dataprepper.pipeline.parser.model.PipelineConfiguration;
 import org.opensearch.dataprepper.pipeline.parser.model.SinkContextPluginSetting;
 import org.opensearch.dataprepper.pipeline.router.Router;
 import org.opensearch.dataprepper.pipeline.router.RouterFactory;
+import org.opensearch.dataprepper.pipeline.buffer.AbstractNonBlockingBuffer;
 import org.opensearch.dataprepper.sourcecoordination.SourceCoordinatorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -116,7 +119,13 @@ public class PipelineTransformer {
                     pluginFactory.loadPlugin(Source.class, sourceSetting));
 
             LOG.info("Building buffer for the pipeline [{}]", pipelineName);
-            final Buffer pipelineDefinedBuffer = pluginFactory.loadPlugin(Buffer.class, pipelineConfiguration.getBufferPluginSetting(), source.getDecoder());
+            Optional<Buffer> defaultBuffer = Optional.empty();
+            if (source instanceof DefinesBuffer) {
+                defaultBuffer = ((DefinesBuffer) source).getDefaultBuffer();
+            }
+
+            final Buffer pipelineDefinedBuffer = defaultBuffer.orElseGet(() ->
+                    pluginFactory.loadPlugin(Buffer.class, pipelineConfiguration.getBufferPluginSetting(), source.getDecoder()));
 
             LOG.info("Building processors for the pipeline [{}]", pipelineName);
             final int processorThreads = pipelineConfiguration.getWorkers();
@@ -147,7 +156,6 @@ public class PipelineTransformer {
             LOG.info("Constructing MultiBufferDecorator with [{}] secondary buffers for pipeline [{}]", secondaryBuffers.size(), pipelineName);
             final MultiBufferDecorator multiBufferDecorator = new MultiBufferDecorator(pipelineDefinedBuffer, secondaryBuffers);
 
-
             final Buffer buffer = applyCircuitBreakerToBuffer(source, multiBufferDecorator);
 
             final Router router = routerFactory.createRouter(pipelineConfiguration.getRoutes());
@@ -156,6 +164,11 @@ public class PipelineTransformer {
                     eventFactory, acknowledgementSetManager, sourceCoordinatorFactory, processorThreads, readBatchDelay,
                     dataPrepperConfiguration.getProcessorShutdownTimeout(), dataPrepperConfiguration.getSinkShutdownTimeout(),
                     getPeerForwarderDrainTimeout(dataPrepperConfiguration));
+
+            if (pipelineDefinedBuffer instanceof AbstractNonBlockingBuffer) {
+                ((AbstractNonBlockingBuffer<?>) pipelineDefinedBuffer).setPipelineRunner(new PipelineRunner(pipeline));
+            }
+
             pipelineMap.put(pipelineName, pipeline);
         } catch (Exception ex) {
             //If pipeline construction errors out, we will skip that pipeline and proceed

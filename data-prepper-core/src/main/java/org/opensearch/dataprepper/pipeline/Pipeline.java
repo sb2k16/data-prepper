@@ -54,6 +54,7 @@ import static java.lang.String.format;
 @SuppressWarnings({"rawtypes", "unchecked"})
 public class Pipeline {
     private static final Logger LOG = LoggerFactory.getLogger(Pipeline.class);
+    private final boolean acknowledgementsEnabled;
     private volatile AtomicBoolean stopRequested;
 
     private final String name;
@@ -137,6 +138,7 @@ public class Pipeline {
                 new PipelineThreadFactory(format("%s-sink-worker", name)), this);
 
         stopRequested = new AtomicBoolean(false);
+        this.acknowledgementsEnabled = source.areAcknowledgementsEnabled() || buffer.areAcknowledgementsEnabled();
     }
 
     AcknowledgementSetManager getAcknowledgementSetManager() {
@@ -176,6 +178,10 @@ public class Pipeline {
 
     public boolean isStopRequested() {
         return stopRequested.get();
+    }
+
+    public boolean isAcknowledgementsEnabled() {
+        return this.source.areAcknowledgementsEnabled() || this.buffer.areAcknowledgementsEnabled();
     }
 
     public Duration getPeerForwarderDrainTimeout() {
@@ -226,7 +232,7 @@ public class Pipeline {
                         }
                     }
             ).collect(Collectors.toList());
-            processorExecutorService.submit(new ProcessWorker(buffer, processors, this));
+            processorExecutorService.submit(new ProcessWorker(buffer, processors, this, new PipelineRunner(this)));
         }
     }
 

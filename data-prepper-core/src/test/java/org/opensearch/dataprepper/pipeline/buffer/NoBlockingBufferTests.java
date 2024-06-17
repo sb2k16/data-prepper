@@ -31,7 +31,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class SynchronizedBufferTests {
+public class NoBlockingBufferTests {
     private static final String TEST_PIPELINE_NAME = "test-pipeline";
     private static final int TEST_WRITE_TIMEOUT = 10;
     private static final int TEST_BATCH_READ_TIMEOUT = 500;
@@ -54,15 +54,15 @@ public class SynchronizedBufferTests {
 
     @Test
     public void testCreationUsingPipelineDescription() {
-        final SynchronizedBuffer<Record<String>> synchronizedBuffer = new SynchronizedBuffer<>(pipelineDescription);
-        synchronizedBuffer.setPipelineRunner(mockPipelineRunner);
-        assertThat(synchronizedBuffer, notNullValue());
+        final NonBlockingBuffer<Record<String>> NonBlockingBuffer = new NonBlockingBuffer<>(pipelineDescription);
+        NonBlockingBuffer.setPipelineRunner(mockPipelineRunner);
+        assertThat(NonBlockingBuffer, notNullValue());
     }
 
     @Test
     public void testCreationUsingNullPipelineDescription() {
         try {
-            new SynchronizedBuffer<Record<String>>((PluginSetting) null);
+            new NonBlockingBuffer<Record<String>>((PluginSetting) null);
         } catch (NullPointerException ex) {
             assertThat(ex.getMessage(), is(equalTo("PipelineDescription cannot be null")));
         }
@@ -70,62 +70,62 @@ public class SynchronizedBufferTests {
 
     @Test
     public void testCreationUsingValues() {
-        final SynchronizedBuffer<Record<String>> synchronizedBuffer = new SynchronizedBuffer<>(TEST_PIPELINE_NAME);
-        synchronizedBuffer.setPipelineRunner(mockPipelineRunner);
+        final NonBlockingBuffer<Record<String>> NonBlockingBuffer = new NonBlockingBuffer<>(TEST_PIPELINE_NAME);
+        NonBlockingBuffer.setPipelineRunner(mockPipelineRunner);
 
-        assertThat(synchronizedBuffer, notNullValue());
+        assertThat(NonBlockingBuffer, notNullValue());
     }
 
     @Test
     public void testInsertNull() {
-        final SynchronizedBuffer<Record<String>> synchronizedBuffer = new SynchronizedBuffer<>(TEST_PIPELINE_NAME);
-        synchronizedBuffer.setPipelineRunner(mockPipelineRunner);
+        final NonBlockingBuffer<Record<String>> NonBlockingBuffer = new NonBlockingBuffer<>(TEST_PIPELINE_NAME);
+        NonBlockingBuffer.setPipelineRunner(mockPipelineRunner);
 
-        assertThat(synchronizedBuffer, notNullValue());
-        assertThrows(NullPointerException.class, () -> synchronizedBuffer.write(null, TEST_WRITE_TIMEOUT));
+        assertThat(NonBlockingBuffer, notNullValue());
+        assertThrows(NullPointerException.class, () -> NonBlockingBuffer.write(null, TEST_WRITE_TIMEOUT));
     }
 
     @Test
     public void testReadEmptyBuffer() {
-        final SynchronizedBuffer<Record<String>> synchronizedBuffer = new SynchronizedBuffer<>(TEST_PIPELINE_NAME);
-        synchronizedBuffer.setPipelineRunner(mockPipelineRunner);
+        final NonBlockingBuffer<Record<String>> NonBlockingBuffer = new NonBlockingBuffer<>(TEST_PIPELINE_NAME);
+        NonBlockingBuffer.setPipelineRunner(mockPipelineRunner);
 
-        assertThat(synchronizedBuffer, notNullValue());
-        final Map.Entry<Collection<Record<String>>, CheckpointState> readResult = synchronizedBuffer.read(TEST_BATCH_READ_TIMEOUT);
+        assertThat(NonBlockingBuffer, notNullValue());
+        final Map.Entry<Collection<Record<String>>, CheckpointState> readResult = NonBlockingBuffer.read(TEST_BATCH_READ_TIMEOUT);
         assertThat(readResult.getKey().size(), is(0));
     }
 
     @Test
     public void testBufferIsEmpty() {
-        final SynchronizedBuffer<Record<String>> synchronizedBuffer = new SynchronizedBuffer<>(pipelineDescription);
-        synchronizedBuffer.setPipelineRunner(mockPipelineRunner);
+        final NonBlockingBuffer<Record<String>> NonBlockingBuffer = new NonBlockingBuffer<>(pipelineDescription);
+        NonBlockingBuffer.setPipelineRunner(mockPipelineRunner);
 
-        assertTrue(synchronizedBuffer.isEmpty());
+        assertTrue(NonBlockingBuffer.isEmpty());
     }
 
     @Test
     public void testBufferIsNotEmpty() {
         doNothing().when(mockPipelineRunner).runAllProcessorsAndPublishToSinks();
 
-        final SynchronizedBuffer<Record<String>> synchronizedBuffer = new SynchronizedBuffer<>(pipelineDescription);
-        synchronizedBuffer.setPipelineRunner(mockPipelineRunner);
+        final NonBlockingBuffer<Record<String>> NonBlockingBuffer = new NonBlockingBuffer<>(pipelineDescription);
+        NonBlockingBuffer.setPipelineRunner(mockPipelineRunner);
 
         Record<String> record = new Record<>("TEST");
-        synchronizedBuffer.write(record, TEST_WRITE_TIMEOUT);
+        NonBlockingBuffer.write(record, TEST_WRITE_TIMEOUT);
 
-        assertFalse(synchronizedBuffer.isEmpty());
+        assertFalse(NonBlockingBuffer.isEmpty());
     }
 
     @Test
     void testNonZeroBatchDelayReturnsAllRecords() throws Exception {
-        final SynchronizedBuffer<Record<String>> synchronizedBuffer = new SynchronizedBuffer<>(pipelineDescription);
-        synchronizedBuffer.setPipelineRunner(mockPipelineRunner);
+        final NonBlockingBuffer<Record<String>> NonBlockingBuffer = new NonBlockingBuffer<>(pipelineDescription);
+        NonBlockingBuffer.setPipelineRunner(mockPipelineRunner);
 
-        assertThat(synchronizedBuffer, notNullValue());
+        assertThat(NonBlockingBuffer, notNullValue());
 
         final Collection<Record<String>> testRecords = generateBatchRecords();
-        synchronizedBuffer.writeAll(testRecords, TEST_WRITE_TIMEOUT);
-        final Map.Entry<Collection<Record<String>>, CheckpointState> readResult = synchronizedBuffer.read(TEST_BATCH_READ_TIMEOUT);
+        NonBlockingBuffer.writeAll(testRecords, TEST_WRITE_TIMEOUT);
+        final Map.Entry<Collection<Record<String>>, CheckpointState> readResult = NonBlockingBuffer.read(TEST_BATCH_READ_TIMEOUT);
         final Collection<Record<String>> records = readResult.getKey();
         final CheckpointState checkpointState = readResult.getValue();
         assertThat(records.size(), is(testRecords.size()));

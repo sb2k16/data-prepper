@@ -19,6 +19,7 @@ import org.opensearch.dataprepper.metrics.PluginMetrics;
 import org.opensearch.dataprepper.model.annotations.DataPrepperPlugin;
 import org.opensearch.dataprepper.model.annotations.DataPrepperPluginConstructor;
 import org.opensearch.dataprepper.model.buffer.Buffer;
+import org.opensearch.dataprepper.model.buffer.DefinesBuffer;
 import org.opensearch.dataprepper.model.codec.ByteDecoder;
 import org.opensearch.dataprepper.model.codec.JsonDecoder;
 import org.opensearch.dataprepper.model.configuration.PipelineDescription;
@@ -28,6 +29,7 @@ import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.plugin.PluginFactory;
 import org.opensearch.dataprepper.model.record.Record;
 import org.opensearch.dataprepper.model.source.Source;
+import org.opensearch.dataprepper.pipeline.buffer.NonBlockingBuffer;
 import org.opensearch.dataprepper.plugins.certificate.CertificateProvider;
 import org.opensearch.dataprepper.plugins.certificate.model.Certificate;
 import org.opensearch.dataprepper.plugins.codec.CompressionOption;
@@ -45,7 +47,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.function.Function;
 
 @DataPrepperPlugin(name = "opensearch_api", pluginType = Source.class, pluginConfigurationType = OpenSearchAPISourceConfig.class)
-public class OpenSearchAPISource implements Source<Record<Event>> {
+public class OpenSearchAPISource implements Source<Record<Event>>, DefinesBuffer {
     private static final Logger LOG = LoggerFactory.getLogger(OpenSearchAPISource.class);
     private static final String PIPELINE_NAME_PLACEHOLDER = "${pipelineName}";
     public static final String REGEX_HEALTH = "regex:^/(?!health$).*$";
@@ -60,6 +62,7 @@ public class OpenSearchAPISource implements Source<Record<Event>> {
     private final PluginMetrics pluginMetrics;
     private static final String HTTP_HEALTH_CHECK_PATH = "/health";
     private ByteDecoder byteDecoder;
+    private final Buffer<Record<Event>> defaultBuffer;
 
     @DataPrepperPluginConstructor
     public OpenSearchAPISource(final OpenSearchAPISourceConfig sourceConfig, final PluginMetrics pluginMetrics, final PluginFactory pluginFactory,
@@ -87,10 +90,12 @@ public class OpenSearchAPISource implements Source<Record<Event>> {
         authenticationPluginSetting.setPipelineName(pipelineName);
         authenticationProvider = pluginFactory.loadPlugin(ArmeriaHttpAuthenticationProvider.class, authenticationPluginSetting);
         httpRequestExceptionHandler = new HttpRequestExceptionHandler(pluginMetrics);
+        defaultBuffer = new NonBlockingBuffer(pipelineName);
     }
 
     @Override
     public void start(final Buffer<Record<Event>> buffer) {
+
         if (buffer == null) {
             throw new IllegalStateException("Buffer provided is null");
         }
@@ -194,5 +199,10 @@ public class OpenSearchAPISource implements Source<Record<Event>> {
             }
         }
         LOG.info("Stopped OpenSearch API source.");
+    }
+
+    @Override
+    public Optional<Buffer> getDefaultBuffer() {
+        return Optional.of(defaultBuffer);
     }
 }

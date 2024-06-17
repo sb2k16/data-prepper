@@ -6,6 +6,7 @@
 package org.opensearch.dataprepper.pipeline.buffer;
 
 import io.micrometer.core.instrument.Counter;
+import org.apache.commons.collections.buffer.SynchronizedBuffer;
 import org.opensearch.dataprepper.metrics.MetricNames;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
 import org.opensearch.dataprepper.model.CheckpointState;
@@ -23,16 +24,15 @@ import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-@DataPrepperPlugin(name = "synchronized_buffer", pluginType = Buffer.class)
-public class SynchronizedBuffer<T extends Record<?>> extends AbstractSynchronizedBuffer<T> {
-    private static final Logger LOG = LoggerFactory.getLogger(SynchronizedBuffer.class);
+public class NonBlockingBuffer<T extends Record<?>> extends AbstractNonBlockingBuffer<T> {
+    private static final Logger LOG = LoggerFactory.getLogger(NonBlockingBuffer.class);
     private static final String SYNCHRONIZED_BUFFER = "SynchronizedBuffer";
     private final String pipelineName;
     private final ThreadLocal<Collection<T>> threadLocalStore;
     private final Counter recordsWrittenCounter;
     private final Counter recordsReadCounter;
 
-    public SynchronizedBuffer(final String pipelineName) {
+    public NonBlockingBuffer(final String pipelineName) {
         this.pipelineName = pipelineName;
         this.threadLocalStore = new ThreadLocal<>();
 
@@ -41,7 +41,7 @@ public class SynchronizedBuffer<T extends Record<?>> extends AbstractSynchronize
         this.recordsReadCounter = pluginMetrics.counter(MetricNames.RECORDS_READ);
     }
 
-    public SynchronizedBuffer(final PluginSetting pluginSetting) {
+    public NonBlockingBuffer(final PluginSetting pluginSetting) {
         this(checkNotNull(pluginSetting, "PluginSetting cannot be null").getPipelineName());
     }
 

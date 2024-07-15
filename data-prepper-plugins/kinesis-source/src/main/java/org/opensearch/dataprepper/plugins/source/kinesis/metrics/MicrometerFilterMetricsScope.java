@@ -12,9 +12,7 @@ public class MicrometerFilterMetricsScope extends FilteringMetricsScope {
 
     private static final Logger LOG = LoggerFactory.getLogger(MicrometerFilterMetricsScope.class);
 
-
     private final PluginMetrics pluginMetrics;
-
 
     public MicrometerFilterMetricsScope(final PluginMetrics pluginMetrics) {
         super(MetricsLevel.SUMMARY, ImmutableSet.of(METRICS_DIMENSIONS_ALL));
@@ -24,8 +22,14 @@ public class MicrometerFilterMetricsScope extends FilteringMetricsScope {
     @Override
     public void addData(String name, double value, StandardUnit unit) {
         // TODO: report metrics.
+        LOG.info("{} {} {}", name, value, unit);
     }
 
+    @Override
+    public void addData(String name, double value, StandardUnit unit, MetricsLevel level) {
+        // TODO: report metrics.
+        LOG.info("{} {} {} {}", name, value, unit, level);
+    }
 
     @Override
     public void end() {

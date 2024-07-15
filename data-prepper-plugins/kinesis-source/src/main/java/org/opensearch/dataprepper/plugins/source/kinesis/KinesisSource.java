@@ -1,6 +1,8 @@
 package org.opensearch.dataprepper.plugins.source.kinesis;
 
+import org.opensearch.dataprepper.common.concurrent.BackgroundThreadFactory;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
+import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.model.annotations.DataPrepperPlugin;
 import org.opensearch.dataprepper.model.annotations.DataPrepperPluginConstructor;
 import org.opensearch.dataprepper.model.buffer.Buffer;
@@ -13,36 +15,36 @@ import org.opensearch.dataprepper.model.configuration.PluginModel;
 import org.opensearch.dataprepper.model.configuration.PluginSetting;
 import org.opensearch.dataprepper.model.plugin.PluginFactory;
 import org.opensearch.dataprepper.plugins.source.kinesis.codec.DefaultCodec;
-import org.opensearch.dataprepper.plugins.source.kinesis.metrics.MicrometerMetricFactory;
-import org.opensearch.dataprepper.plugins.source.kinesis.processor.KinesisRecordProcessorFactory;
+import org.opensearch.dataprepper.plugins.source.kinesis.processor.KinesisShardRecordProcessorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.BillingMode;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
-import software.amazon.kinesis.common.ConfigsBuilder;
 import software.amazon.kinesis.common.KinesisClientUtil;
 import software.amazon.kinesis.coordinator.Scheduler;
+import software.amazon.kinesis.leases.LeaseManagementConfig;
+import software.amazon.kinesis.leases.MultiTenantMultiStreamConfigsBuilder;
+import software.amazon.kinesis.leases.MultiTenantLeaseManagementConfig;
+import software.amazon.kinesis.leases.dynamodb.MultiTenantDynamoDBLeaseManagementFactory;
+import software.amazon.kinesis.leases.dynamodb.MultiTenantDynamoDBLeaseSerializer;
 import software.amazon.kinesis.processor.ShardRecordProcessorFactory;
 import software.amazon.kinesis.retrieval.polling.PollingConfig;
 
-import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.stream.Collectors;
 
 @DataPrepperPlugin(name = "kinesis", pluginType = Source.class, pluginConfigurationType = KinesisSourceConfig.class)
 public class KinesisSource implements Source<Record<Event>> {
     private static final Logger LOG = LoggerFactory.getLogger(KinesisSource.class);
 
     private static final int DEFAULT_MAX_RECORDS = 10000;
-//    private static final int DEFAULT_AWS_CONNECTION_TIME_OUT_SECONDS = 60;
-//    private static final int MAX_CONCURRENCY = 100;
-
-    private static final int IDEL_TIME_BETWEEN_READS_IN_MILLIS = 250;
+    private static final int IDLE_TIME_BETWEEN_READS_IN_MILLIS = 250;
 
 
     public static final long DEFAULT_PERIODIC_SHARD_SYNC_INTERVAL_MILLIS = 2 * 60 * 1000L;
@@ -64,15 +66,22 @@ public class KinesisSource implements Source<Record<Event>> {
     private final String applicationName;
     private final String tableName;
     private final String pipelineName;
+    private final AcknowledgementSetManager acknowledgementSetManager;
 
     private Scheduler scheduler;
     private final KinesisAsyncClient kinesisClient;
     private final DynamoDbAsyncClient dynamoClient;
     private final CloudWatchAsyncClient cloudWatchClient;
     private final String workerIdentifier;
+    private final ExecutorService executorService;
 
     @DataPrepperPluginConstructor
-    public KinesisSource(final KinesisSourceConfig sourceConfig, final PluginMetrics pluginMetrics, final PluginFactory pluginFactory, final PipelineDescription pipelineDescription) {
+    public KinesisSource(final KinesisSourceConfig sourceConfig,
+                         final PluginMetrics pluginMetrics,
+                         final PluginFactory pluginFactory,
+                         final PipelineDescription pipelineDescription,
+                         final AcknowledgementSetManager acknowledgementSetManager) {
+        this.acknowledgementSetManager = acknowledgementSetManager;
 
         LOG.info("Creating a Kinesis Source");
         this.sourceConfig = sourceConfig;
@@ -126,6 +135,7 @@ public class KinesisSource implements Source<Record<Event>> {
                 .region(awsAuthenticationOptions.getAwsRegion())
                 .build();
 
+        executorService = Executors.newFixedThreadPool(4, BackgroundThreadFactory.defaultExecutorThreadFactory("s3-source-sqs"));
     }
     @Override
     public void start(final Buffer<Record<Event>> buffer) {
@@ -133,27 +143,36 @@ public class KinesisSource implements Source<Record<Event>> {
             throw new IllegalStateException("Buffer provided is null");
         }
 
-        final ShardRecordProcessorFactory processorFactory = new KinesisRecordProcessorFactory(buffer, codec);
+        final ShardRecordProcessorFactory processorFactory = new KinesisShardRecordProcessorFactory(
+                buffer, codec, sourceConfig, acknowledgementSetManager, pluginMetrics);
 
-        final List<String> streamNames = sourceConfig.getStreams().stream().map(KinesisStreamConfig::getName).collect(Collectors.toList());
-        ConfigsBuilder configsBuilder = new ConfigsBuilder(
-                new KinesisMultiStreamTracker(kinesisClient, streamNames), applicationName, kinesisClient, dynamoClient, cloudWatchClient, workerIdentifier, processorFactory).tableName(tableName);
+        MultiTenantMultiStreamConfigsBuilder configsBuilder = new MultiTenantMultiStreamConfigsBuilder(
+                new KinesisMultiStreamTracker(kinesisClient, sourceConfig, applicationName),
+                applicationName, kinesisClient, dynamoClient, cloudWatchClient, workerIdentifier, processorFactory);
+        configsBuilder.tableName("KinesisDynamoDBLeaseCoordinationTable");
 
         sourceConfig.getStreams().forEach(stream -> {
             if (stream.getConsumerStrategy() == KinesisStreamConfig.ConsumerStrategy.POLLING) {
                 configsBuilder.retrievalConfig().retrievalSpecificConfig(
                         new PollingConfig(kinesisClient)
                                 .maxRecords(DEFAULT_MAX_RECORDS)
-                                .idleTimeBetweenReadsInMillis(IDEL_TIME_BETWEEN_READS_IN_MILLIS));
+                                .idleTimeBetweenReadsInMillis(IDLE_TIME_BETWEEN_READS_IN_MILLIS));
             }
         });
+
+        MultiTenantDynamoDBLeaseManagementFactory multiTenantDynamoDBLeaseManagementFactory =
+                (MultiTenantDynamoDBLeaseManagementFactory) configsBuilder
+                        .leaseManagementConfig()
+                        .leaseManagementFactory(new MultiTenantDynamoDBLeaseSerializer(applicationName), true);
 
         scheduler = new Scheduler(
                 configsBuilder.checkpointConfig(),
                 configsBuilder.coordinatorConfig(),
-                configsBuilder.leaseManagementConfig(),
+                configsBuilder.leaseManagementConfig()
+                        .billingMode(BillingMode.PAY_PER_REQUEST)
+                        .leaseManagementFactory(multiTenantDynamoDBLeaseManagementFactory),
                 configsBuilder.lifecycleConfig(),
-                configsBuilder.metricsConfig().metricsFactory(new MicrometerMetricFactory(pluginMetrics)),
+                configsBuilder.metricsConfig(),
                 configsBuilder.processorConfig(),
                 configsBuilder.retrievalConfig()
         );
@@ -179,5 +198,10 @@ public class KinesisSource implements Source<Record<Event>> {
             LOG.error("Timeout while waiting for shutdown. Scheduler may not have exited.");
         }
         LOG.info("Completed, shutting down now.");
+    }
+
+    @Override
+    public boolean areAcknowledgementsEnabled() {
+        return sourceConfig.isAcknowledgments();
     }
 }

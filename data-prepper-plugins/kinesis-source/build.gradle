@@ -9,11 +9,15 @@ plugins {
 
 dependencies {
     implementation project(':data-prepper-api')
+    implementation project(':data-prepper-plugins:common')
+    implementation project(':data-prepper-plugins:buffer-common')
     implementation libs.armeria.core
     implementation 'com.fasterxml.jackson.core:jackson-core'
     implementation 'com.fasterxml.jackson.core:jackson-databind'
     implementation project(':data-prepper-plugins:blocking-buffer')
     implementation 'software.amazon.awssdk:kinesis'
+    // https://mvnrepository.com/artifact/com.fasterxml.jackson.dataformat/jackson-dataformat-ion
+    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-ion'
 
     // https://mvnrepository.com/artifact/software.amazon.kinesis/amazon-kinesis-client
     implementation 'software.amazon.kinesis:amazon-kinesis-client:2.6.0'

@@ -4,7 +4,6 @@ import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
 import software.amazon.awssdk.services.kinesis.model.DescribeStreamRequest;
 import software.amazon.awssdk.services.kinesis.model.DescribeStreamResponse;
 import software.amazon.awssdk.services.kinesis.model.StreamDescription;
-import software.amazon.kinesis.common.InitialPositionInStream;
 import software.amazon.kinesis.common.InitialPositionInStreamExtended;
 import software.amazon.kinesis.common.StreamConfig;
 import software.amazon.kinesis.common.StreamIdentifier;
@@ -20,20 +19,22 @@ public class KinesisMultiStreamTracker implements MultiStreamTracker {
     private static final String COLON = ":";
 
     private final KinesisAsyncClient kinesisClient;
-    private final List<String> streamNames;
+    private final KinesisSourceConfig sourceConfig;
+    private final String applicationName;
 
-    public KinesisMultiStreamTracker(KinesisAsyncClient kinesisClient, List<String> streamNames) {
+    public KinesisMultiStreamTracker(KinesisAsyncClient kinesisClient, final KinesisSourceConfig sourceConfig, final String applicationName) {
         this.kinesisClient = kinesisClient;
-        this.streamNames = streamNames;
+        this.sourceConfig = sourceConfig;
+        this.applicationName = applicationName;
     }
 
     @Override
     public List<StreamConfig> streamConfigList()  {
         List<StreamConfig> streamConfigList = new ArrayList<>();
-        for (String streamName : streamNames) {
+        for (KinesisStreamConfig kinesisStreamConfig : sourceConfig.getStreams()) {
             StreamConfig streamConfig;
             try {
-                streamConfig = getStreamConfig(streamName);
+                streamConfig = getStreamConfig(kinesisStreamConfig);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -42,15 +43,15 @@ public class KinesisMultiStreamTracker implements MultiStreamTracker {
         return streamConfigList;
     }
 
-    private StreamConfig getStreamConfig(String kinesisStreamName) throws Exception {
-        StreamIdentifier sourceStreamIdentifier = getStreamIdentifier(kinesisStreamName);
+    private StreamConfig getStreamConfig(KinesisStreamConfig kinesisStreamConfig) throws Exception {
+        StreamIdentifier sourceStreamIdentifier = getStreamIdentifier(kinesisStreamConfig);
         return new StreamConfig(sourceStreamIdentifier,
-                InitialPositionInStreamExtended.newInitialPosition(InitialPositionInStream.LATEST));
+                InitialPositionInStreamExtended.newInitialPosition(kinesisStreamConfig.getInitialPosition()));
     }
 
-    private StreamIdentifier getStreamIdentifier(String streamName) throws Exception {
+    private StreamIdentifier getStreamIdentifier(KinesisStreamConfig kinesisStreamConfig) throws Exception {
         DescribeStreamRequest describeStreamRequest = DescribeStreamRequest.builder()
-                .streamName(streamName)
+                .streamName(kinesisStreamConfig.getName())
                 .build();
         DescribeStreamResponse describeStreamResponse = kinesisClient.describeStream(describeStreamRequest).get();
         String streamIdentifierString = getStreamIdentifierString(describeStreamResponse.streamDescription());

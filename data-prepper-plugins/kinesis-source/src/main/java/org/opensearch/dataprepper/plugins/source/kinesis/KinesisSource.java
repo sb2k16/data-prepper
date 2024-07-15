@@ -1,0 +1,99 @@
+/*
+ * Copyright OpenSearch Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package org.opensearch.dataprepper.plugins.source.kinesis;
+
+import org.opensearch.dataprepper.metrics.PluginMetrics;
+import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
+import org.opensearch.dataprepper.model.annotations.DataPrepperPlugin;
+import org.opensearch.dataprepper.model.annotations.DataPrepperPluginConstructor;
+import org.opensearch.dataprepper.model.buffer.Buffer;
+import org.opensearch.dataprepper.model.event.Event;
+import org.opensearch.dataprepper.model.plugin.PluginFactory;
+import org.opensearch.dataprepper.model.record.Record;
+import org.opensearch.dataprepper.model.source.Source;
+import org.opensearch.dataprepper.model.source.coordinator.SourcePartitionStoreItem;
+import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourceCoordinator;
+import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourcePartition;
+import org.opensearch.dataprepper.model.source.coordinator.enhanced.UsesEnhancedSourceCoordination;
+import org.opensearch.dataprepper.plugins.source.kinesis.coordination.PartitionFactory;
+import org.opensearch.dataprepper.plugins.source.kinesis.coordination.partition.LeaderPartition;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Objects;
+import java.util.function.Function;
+
+@DataPrepperPlugin(name = "kinesis", pluginType = Source.class, pluginConfigurationType = KinesisSourceConfig.class)
+public class KinesisSource implements Source<Record<Event>>, UsesEnhancedSourceCoordination {
+
+    private static final Logger LOG = LoggerFactory.getLogger(KinesisSource.class);
+
+    private final PluginMetrics pluginMetrics;
+
+    private final KinesisSourceConfig sourceConfig;
+
+    private final PluginFactory pluginFactory;
+
+    private final AcknowledgementSetManager acknowledgementSetManager;
+
+    private EnhancedSourceCoordinator coordinator;
+
+    private KinesisService kinesisService;
+
+    private final boolean acknowledgementsEnabled;
+
+    @DataPrepperPluginConstructor
+    public KinesisSource(final PluginMetrics pluginMetrics,
+                          final KinesisSourceConfig sourceConfig,
+                          final PluginFactory pluginFactory,
+                          final AcknowledgementSetManager acknowledgementSetManager) {
+        LOG.info("Create KinesisSource Source");
+        this.pluginMetrics = pluginMetrics;
+        this.sourceConfig = sourceConfig;
+        this.pluginFactory = pluginFactory;
+        this.acknowledgementSetManager = acknowledgementSetManager;
+        this.acknowledgementsEnabled = sourceConfig.isAcknowledgments();
+    }
+
+    @Override
+    public boolean areAcknowledgementsEnabled() {
+        return acknowledgementsEnabled;
+    }
+
+    @Override
+    public void start(Buffer<Record<Event>> buffer) {
+        Objects.requireNonNull(coordinator);
+
+        coordinator.createPartition(new LeaderPartition());
+
+        // Create DynamoDB Service
+        kinesisService = new KinesisService(coordinator, sourceConfig, pluginMetrics, acknowledgementSetManager);
+
+        LOG.info("Start DynamoDB service");
+        kinesisService.start(buffer);
+    }
+
+
+    @Override
+    public void stop() {
+        LOG.info("Stop DynamoDB Source");
+        if (Objects.nonNull(kinesisService)) {
+            kinesisService.shutdown();
+        }
+
+    }
+
+    @Override
+    public void setEnhancedSourceCoordinator(final EnhancedSourceCoordinator sourceCoordinator) {
+        coordinator = sourceCoordinator;
+        coordinator.initialize();
+    }
+
+    @Override
+    public Function<SourcePartitionStoreItem, EnhancedSourcePartition> getPartitionFactory() {
+        return new PartitionFactory();
+    }
+}

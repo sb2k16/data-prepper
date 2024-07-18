@@ -22,6 +22,7 @@ import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.BillingMode;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
+import software.amazon.kinesis.common.ConfigsBuilder;
 import software.amazon.kinesis.common.KinesisClientUtil;
 import software.amazon.kinesis.coordinator.Scheduler;
 import software.amazon.kinesis.leases.LeaseManagementConfig;
@@ -146,10 +147,12 @@ public class KinesisSource implements Source<Record<Event>> {
         final ShardRecordProcessorFactory processorFactory = new KinesisShardRecordProcessorFactory(
                 buffer, codec, sourceConfig, acknowledgementSetManager, pluginMetrics);
 
-        MultiTenantMultiStreamConfigsBuilder configsBuilder = new MultiTenantMultiStreamConfigsBuilder(
-                new KinesisMultiStreamTracker(kinesisClient, sourceConfig, applicationName),
-                applicationName, kinesisClient, dynamoClient, cloudWatchClient, workerIdentifier, processorFactory);
-        configsBuilder.tableName("KinesisDynamoDBLeaseCoordinationTable");
+        ConfigsBuilder configsBuilder =
+                new ConfigsBuilder(
+                    new KinesisMultiStreamTracker(kinesisClient, sourceConfig, applicationName),
+                    applicationName, kinesisClient, dynamoClient, cloudWatchClient,
+                        workerIdentifier, processorFactory
+                ).tableName(applicationName);
 
         sourceConfig.getStreams().forEach(stream -> {
             if (stream.getConsumerStrategy() == KinesisStreamConfig.ConsumerStrategy.POLLING) {
@@ -160,17 +163,11 @@ public class KinesisSource implements Source<Record<Event>> {
             }
         });
 
-        MultiTenantDynamoDBLeaseManagementFactory multiTenantDynamoDBLeaseManagementFactory =
-                (MultiTenantDynamoDBLeaseManagementFactory) configsBuilder
-                        .leaseManagementConfig()
-                        .leaseManagementFactory(new MultiTenantDynamoDBLeaseSerializer(applicationName), true);
-
         scheduler = new Scheduler(
                 configsBuilder.checkpointConfig(),
                 configsBuilder.coordinatorConfig(),
                 configsBuilder.leaseManagementConfig()
-                        .billingMode(BillingMode.PAY_PER_REQUEST)
-                        .leaseManagementFactory(multiTenantDynamoDBLeaseManagementFactory),
+                        .billingMode(BillingMode.PAY_PER_REQUEST),
                 configsBuilder.lifecycleConfig(),
                 configsBuilder.metricsConfig(),
                 configsBuilder.processorConfig(),

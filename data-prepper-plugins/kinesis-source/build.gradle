@@ -23,7 +23,13 @@ dependencies {
     implementation 'software.amazon.kinesis:amazon-kinesis-client:2.6.0'
     compileOnly 'org.projectlombok:lombok:1.18.20'
     annotationProcessor 'org.projectlombok:lombok:1.18.20'
-
+    implementation("com.amazonaws:aws-encryption-sdk-java:3.0.0")
+    implementation("software.amazon.cryptography:aws-cryptographic-material-providers:1.0.2")
+    implementation(platform("software.amazon.awssdk:bom:2.20.91"))
+    implementation("software.amazon.awssdk:kms")
+    implementation("software.amazon.awssdk:dynamodb")
+// The following are optional:
+    implementation("com.amazonaws:aws-java-sdk:1.12.394")
     testImplementation platform('org.junit:junit-bom:5.9.1')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }

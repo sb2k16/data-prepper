@@ -7,6 +7,7 @@ import org.opensearch.dataprepper.model.codec.InputCodec;
 import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.record.Record;
 import org.opensearch.dataprepper.plugins.source.kinesis.KinesisSourceConfig;
+import software.amazon.kinesis.common.StreamIdentifier;
 import software.amazon.kinesis.processor.ShardRecordProcessor;
 import software.amazon.kinesis.processor.ShardRecordProcessorFactory;
 
@@ -34,5 +35,10 @@ public class KinesisShardRecordProcessorFactory implements ShardRecordProcessorF
     @Override
     public ShardRecordProcessor shardRecordProcessor() {
         return new KinesisRecordProcessor(buffer, codec, kinesisSourceConfig, acknowledgementSetManager, pluginMetrics);
+    }
+
+    @Override
+    public ShardRecordProcessor shardRecordProcessor(StreamIdentifier streamIdentifier) {
+        return new KinesisRecordProcessor(buffer, codec, kinesisSourceConfig, acknowledgementSetManager, pluginMetrics, streamIdentifier);
     }
 }

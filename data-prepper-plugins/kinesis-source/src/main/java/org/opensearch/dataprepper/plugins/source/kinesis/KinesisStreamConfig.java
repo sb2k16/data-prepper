@@ -19,6 +19,9 @@ public class KinesisStreamConfig {
     @JsonProperty("stream_arn")
     private String arn;
 
+    @JsonProperty("kms_key")
+    private String kmsKey;
+
     @JsonProperty("initial_position")
     private InitialPositionInStream initialPosition = InitialPositionInStream.LATEST;
 

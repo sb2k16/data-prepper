@@ -5,6 +5,9 @@ import com.amazonaws.services.schemaregistry.common.configs.GlueSchemaRegistryCo
 import com.amazonaws.services.schemaregistry.deserializers.GlueSchemaRegistryDeserializer;
 import com.amazonaws.services.schemaregistry.deserializers.GlueSchemaRegistryDeserializerFactory;
 import com.amazonaws.services.schemaregistry.deserializers.GlueSchemaRegistryDeserializerImpl;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import org.opensearch.dataprepper.buffer.common.BufferAccumulator;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
@@ -12,13 +15,19 @@ import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSet;
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.model.buffer.Buffer;
 import org.opensearch.dataprepper.model.codec.InputCodec;
+import org.opensearch.dataprepper.model.event.DefaultEventMetadata;
 import org.opensearch.dataprepper.model.event.Event;
+import org.opensearch.dataprepper.model.event.EventType;
+import org.opensearch.dataprepper.model.event.JacksonEvent;
 import org.opensearch.dataprepper.model.record.Record;
 import org.opensearch.dataprepper.plugins.source.kinesis.KinesisSource;
 import org.opensearch.dataprepper.plugins.source.kinesis.KinesisSourceConfig;
+import org.opensearch.dataprepper.plugins.source.kinesis.KinesisStreamConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.glue.model.DataFormat;
+import software.amazon.awssdk.services.kms.KmsClient;
+import software.amazon.kinesis.common.StreamIdentifier;
 import software.amazon.kinesis.exceptions.InvalidStateException;
 import software.amazon.kinesis.exceptions.ShutdownException;
 import software.amazon.kinesis.exceptions.ThrottlingException;
@@ -31,20 +40,25 @@ import software.amazon.kinesis.processor.RecordProcessorCheckpointer;
 import software.amazon.kinesis.processor.ShardRecordProcessor;
 import software.amazon.kinesis.retrieval.KinesisClientRecord;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 public class KinesisRecordProcessor implements ShardRecordProcessor {
     private static final Logger LOG = LoggerFactory.getLogger(KinesisSource.class);
-
+    private static final ObjectMapper mapper = new ObjectMapper();
     // Checkpointing interval
     private static final int MINIMAL_CHECKPOINT_INTERVAL_MILLIS = 2 * 60 * 1000; // 2 minute
     private final boolean acknowledgementsEnabled;
     private final BufferAccumulator<Record<Event>> bufferAccumulator;
+    private final StreamIdentifier streamIdentifier;
+    private String kmsKeyId;
     private String kinesisShardId;
     private final Buffer<Record<Event>> buffer;
     private final InputCodec codec;
@@ -58,6 +72,7 @@ public class KinesisRecordProcessor implements ShardRecordProcessor {
     static final Duration ACKNOWLEDGEMENT_SET_TIMEOUT = Duration.ofSeconds(20);
     private final Counter acknowledgementSetCallbackCounter;
     static final String ACKNOWLEDGEMENT_SET_CALLBACK_METRIC_NAME = "acknowledgementSetCallbackCounter";
+    private KmsClient kmsClient;
 
     public KinesisRecordProcessor(Buffer<Record<Event>> buffer, InputCodec codec, KinesisSourceConfig kinesisSourceConfig, final AcknowledgementSetManager acknowledgementSetManager, final PluginMetrics pluginMetrics) {
         this.buffer = buffer;
@@ -72,6 +87,37 @@ public class KinesisRecordProcessor implements ShardRecordProcessor {
         this.acknowledgementsEnabled = kinesisSourceConfig.isAcknowledgments();
         this.bufferAccumulator = BufferAccumulator.create(buffer, 1, Duration.ofSeconds(1));
         acknowledgementSetCallbackCounter = pluginMetrics.counter(ACKNOWLEDGEMENT_SET_CALLBACK_METRIC_NAME);
+        this.streamIdentifier = null;
+        this.kmsClient = null;
+        this.kmsKeyId = null;
+    }
+
+    public KinesisRecordProcessor(Buffer<Record<Event>> buffer, InputCodec codec, KinesisSourceConfig kinesisSourceConfig, final AcknowledgementSetManager acknowledgementSetManager, final PluginMetrics pluginMetrics, final StreamIdentifier streamIdentifier) {
+        this.buffer = buffer;
+        this.codec = codec;
+        this.enableCheckpoint = kinesisSourceConfig.isEnableCheckPoint();
+        this.bufferTimeoutMillis = (int) kinesisSourceConfig.getBufferTimeout().toMillis();
+        this.acknowledgementSetManager = acknowledgementSetManager;
+        this.streamIdentifier = streamIdentifier;
+        GlueSchemaRegistryConfiguration gsrConfig = new GlueSchemaRegistryConfiguration("us-east-1");
+        glueSchemaRegistryDeserializer = new GlueSchemaRegistryDeserializerImpl(kinesisSourceConfig.getAwsAuthenticationOptions().authenticateAwsConfiguration(), gsrConfig);
+        GlueSchemaRegistryDeserializerFactory glueSchemaRegistryDeserializerFactory = new GlueSchemaRegistryDeserializerFactory();
+        gsrDataFormatDeserializer = glueSchemaRegistryDeserializerFactory.getInstance(dataFormat, gsrConfig);
+        this.acknowledgementsEnabled = kinesisSourceConfig.isAcknowledgments();
+        this.bufferAccumulator = BufferAccumulator.create(buffer, 1, Duration.ofSeconds(1));
+        acknowledgementSetCallbackCounter = pluginMetrics.counter(ACKNOWLEDGEMENT_SET_CALLBACK_METRIC_NAME);
+        this.kmsClient = null;
+        this.kmsKeyId = null;
+        for (KinesisStreamConfig streamConfig: kinesisSourceConfig.getStreams()) {
+            if (streamConfig.getName().equals(streamIdentifier.streamName())) {
+                this.kmsClient = KmsClient.builder()
+                        .credentialsProvider(kinesisSourceConfig.getAwsAuthenticationOptions().authenticateAwsConfiguration())
+                        .region(kinesisSourceConfig.getAwsAuthenticationOptions().getAwsRegion())
+                        .build();
+                this.kmsKeyId = streamConfig.getKmsKey();
+                break;
+            }
+        }
     }
 
 
@@ -146,7 +192,23 @@ public class KinesisRecordProcessor implements ShardRecordProcessor {
         record.data().get(arr);
         ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(arr);
         // Invoke codec
-        codec.parse(byteArrayInputStream, eventConsumer);
+        //codec.parse(byteArrayInputStream, eventConsumer);
+
+        final BufferedReader reader = new BufferedReader(new InputStreamReader(byteArrayInputStream));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            LOG.debug("Codec to parse line message: " + line);
+            JsonNode jsonNode = mapper.readTree(line);
+            Map<String, Object> rec = mapper.convertValue(jsonNode, new TypeReference<Map<String, Object>>(){});
+            rec.put("stream", streamIdentifier.streamName());
+            Record<Event> eventRecord = new Record<>(JacksonEvent.builder()
+                    .withEventMetadata(DefaultEventMetadata.builder()
+                            .withEventType(EventType.DOCUMENT.toString())
+                            .withAttributes(Map.of("stream", streamIdentifier.streamName()))
+                            .build())
+                    .withData(rec).build());
+            eventConsumer.accept(eventRecord);
+        }
     }
 
     @Override

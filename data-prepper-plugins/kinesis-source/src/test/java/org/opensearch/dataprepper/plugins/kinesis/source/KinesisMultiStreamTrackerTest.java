@@ -19,9 +19,9 @@ import org.mockito.MockitoAnnotations;
 import org.opensearch.dataprepper.plugins.kinesis.source.configuration.KinesisSourceConfig;
 import org.opensearch.dataprepper.plugins.kinesis.source.configuration.KinesisStreamConfig;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
-import software.amazon.awssdk.services.kinesis.model.DescribeStreamRequest;
-import software.amazon.awssdk.services.kinesis.model.DescribeStreamResponse;
-import software.amazon.awssdk.services.kinesis.model.StreamDescription;
+import software.amazon.awssdk.services.kinesis.model.ListStreamsRequest;
+import software.amazon.awssdk.services.kinesis.model.ListStreamsResponse;
+import software.amazon.awssdk.services.kinesis.model.StreamSummary;
 import software.amazon.kinesis.common.InitialPositionInStream;
 import software.amazon.kinesis.common.InitialPositionInStreamExtended;
 import software.amazon.kinesis.common.StreamConfig;
@@ -38,6 +38,7 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -63,30 +64,25 @@ public class KinesisMultiStreamTrackerTest {
         MockitoAnnotations.openMocks(this);
         List<KinesisStreamConfig> kinesisStreamConfigs = new ArrayList<>();
         streamConfigMap = new HashMap<>();
+        List<StreamSummary> streamSummaries = new ArrayList<>();
         STREAMS_LIST.forEach(stream -> {
             KinesisStreamConfig kinesisStreamConfig = mock(KinesisStreamConfig.class);
             when(kinesisStreamConfig.getName()).thenReturn(stream);
             when(kinesisStreamConfig.getInitialPosition()).thenReturn(InitialPositionInStream.LATEST);
 
-            StreamDescription streamDescription = StreamDescription.builder()
+            StreamSummary streamSummary = StreamSummary.builder()
                     .streamARN(String.format(streamArnFormat, awsAccountId, stream))
                     .streamCreationTimestamp(streamCreationTime)
                     .streamName(stream)
                     .build();
 
-            DescribeStreamRequest describeStreamRequest = DescribeStreamRequest.builder()
-                    .streamName(stream)
-                    .build();
-
-            DescribeStreamResponse describeStreamResponse = DescribeStreamResponse.builder()
-                    .streamDescription(streamDescription)
-                    .build();
-
-            when(kinesisClient.describeStream(describeStreamRequest)).thenReturn(CompletableFuture.completedFuture(describeStreamResponse));
+            streamSummaries.add(streamSummary);
             kinesisStreamConfigs.add(kinesisStreamConfig);
-
             streamConfigMap.put(stream, kinesisStreamConfig);
         });
+
+        ListStreamsResponse listStreamsResponse = ListStreamsResponse.builder().streamSummaries(streamSummaries).hasMoreStreams(false).build();
+        when(kinesisClient.listStreams(any(ListStreamsRequest.class))).thenReturn(CompletableFuture.completedFuture(listStreamsResponse));
 
         when(kinesisSourceConfig.getStreams()).thenReturn(kinesisStreamConfigs);
         kinesisMultiStreamTracker = new KinesisMultiStreamTracker(kinesisClient, kinesisSourceConfig, APPLICATION_NAME);
@@ -118,16 +114,11 @@ public class KinesisMultiStreamTrackerTest {
             when(kinesisStreamConfig.getName()).thenReturn(stream);
             when(kinesisStreamConfig.getInitialPosition()).thenReturn(InitialPositionInStream.LATEST);
 
-            DescribeStreamRequest describeStreamRequest = DescribeStreamRequest.builder()
-                    .streamName(stream)
-                    .build();
-
-            when(kinesisClient.describeStream(describeStreamRequest)).thenThrow(new RuntimeException());
             kinesisStreamConfigs.add(kinesisStreamConfig);
-
             streamConfigMap.put(stream, kinesisStreamConfig);
         });
 
+        when(kinesisClient.listStreams(any(ListStreamsRequest.class))).thenThrow(new RuntimeException());
         when(kinesisSourceConfig.getStreams()).thenReturn(kinesisStreamConfigs);
         kinesisMultiStreamTracker = new KinesisMultiStreamTracker(kinesisClient, kinesisSourceConfig, APPLICATION_NAME);
 

@@ -31,7 +31,7 @@ public class KinesisSourceConfig {
     @JsonProperty("streams")
     @NotNull
     @Valid
-    @Size(min = 1, max = 4, message = "Provide 1-4 streams to read from.")
+    @Size(min = 1, message = "Provide 1-4 streams to read from.")
     private List<KinesisStreamConfig> streams;
 
     @Getter

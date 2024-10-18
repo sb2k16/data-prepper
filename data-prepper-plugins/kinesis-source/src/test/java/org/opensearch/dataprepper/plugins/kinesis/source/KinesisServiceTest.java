@@ -36,9 +36,9 @@ import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisServiceClientConfiguration;
-import software.amazon.awssdk.services.kinesis.model.DescribeStreamRequest;
-import software.amazon.awssdk.services.kinesis.model.DescribeStreamResponse;
-import software.amazon.awssdk.services.kinesis.model.StreamDescription;
+import software.amazon.awssdk.services.kinesis.model.ListStreamsRequest;
+import software.amazon.awssdk.services.kinesis.model.ListStreamsResponse;
+import software.amazon.awssdk.services.kinesis.model.StreamSummary;
 import software.amazon.kinesis.common.InitialPositionInStream;
 import software.amazon.kinesis.coordinator.Scheduler;
 import software.amazon.kinesis.metrics.MetricsLevel;
@@ -161,21 +161,14 @@ public class KinesisServiceTest {
         when(awsAuthenticationConfig.getAwsStsExternalId()).thenReturn(UUID.randomUUID().toString());
         final Map<String, String> stsHeaderOverrides = Map.of(UUID.randomUUID().toString(), UUID.randomUUID().toString());
         when(awsAuthenticationConfig.getAwsStsHeaderOverrides()).thenReturn(stsHeaderOverrides);
-        StreamDescription streamDescription = StreamDescription.builder()
+        StreamSummary streamSummary = StreamSummary.builder()
                 .streamARN(String.format(streamArnFormat, awsAccountId, streamId))
                 .streamCreationTimestamp(streamCreationTime)
                 .streamName(streamId)
                 .build();
 
-        DescribeStreamRequest describeStreamRequest = DescribeStreamRequest.builder()
-                .streamName(streamId)
-                .build();
-
-        DescribeStreamResponse describeStreamResponse = DescribeStreamResponse.builder()
-                .streamDescription(streamDescription)
-                .build();
-
-        when(kinesisClient.describeStream(describeStreamRequest)).thenReturn(CompletableFuture.completedFuture(describeStreamResponse));
+        ListStreamsResponse listStreamsResponse = ListStreamsResponse.builder().streamSummaries(List.of(streamSummary)).hasMoreStreams(false).build();
+        when(kinesisClient.listStreams(any(ListStreamsRequest.class))).thenReturn(CompletableFuture.completedFuture(listStreamsResponse));
 
         when(kinesisSourceConfig.getAwsAuthenticationConfig()).thenReturn(awsAuthenticationConfig);
         when(kinesisStreamConfig.getName()).thenReturn(streamId);

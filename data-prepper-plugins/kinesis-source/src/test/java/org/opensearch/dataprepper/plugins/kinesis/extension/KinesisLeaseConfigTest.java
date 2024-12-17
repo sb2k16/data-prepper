@@ -14,7 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import org.junit.jupiter.api.Test;
 import org.opensearch.dataprepper.model.types.ByteCount;
-import org.opensearch.dataprepper.parser.model.DataPrepperConfiguration;
+import org.opensearch.dataprepper.core.parser.model.DataPrepperConfiguration;
 import org.opensearch.dataprepper.pipeline.parser.ByteCountDeserializer;
 import org.opensearch.dataprepper.pipeline.parser.DataPrepperDurationDeserializer;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
@@ -56,6 +56,8 @@ public class KinesisLeaseConfigTest {
         final KinesisLeaseConfig kinesisLeaseConfig = makeConfig(
                 "src/test/resources/simple_pipeline_with_extensions.yaml");
 
+        assertNotNull(kinesisLeaseConfig.getPipelineIdentifier());
+        assertEquals(kinesisLeaseConfig.getPipelineIdentifier(), "sample-kinesis-pipeline-0123");
         assertNotNull(kinesisLeaseConfig.getLeaseCoordinationTable());
         assertEquals(kinesisLeaseConfig.getLeaseCoordinationTable().getTableName(), "kinesis-pipeline-kcl");
         assertEquals(kinesisLeaseConfig.getLeaseCoordinationTable().getRegion(), "us-east-1");

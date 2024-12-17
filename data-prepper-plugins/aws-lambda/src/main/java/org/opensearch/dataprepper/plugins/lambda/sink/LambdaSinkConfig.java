@@ -2,98 +2,48 @@
  * Copyright OpenSearch Contributors
  * SPDX-License-Identifier: Apache-2.0
  */
+
 package org.opensearch.dataprepper.plugins.lambda.sink;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
-import org.opensearch.dataprepper.model.configuration.PluginModel;
-import org.opensearch.dataprepper.plugins.lambda.common.config.AwsAuthenticationOptions;
-import org.opensearch.dataprepper.plugins.lambda.common.config.BatchOptions;
-import static org.opensearch.dataprepper.plugins.lambda.common.config.LambdaCommonConfig.BATCH_EVENT;
-import static org.opensearch.dataprepper.plugins.lambda.common.config.LambdaCommonConfig.EVENT;
-
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import java.util.Map;
 import java.util.Objects;
+import org.opensearch.dataprepper.model.configuration.PluginModel;
+import org.opensearch.dataprepper.plugins.lambda.common.config.InvocationType;
+import org.opensearch.dataprepper.plugins.lambda.common.config.LambdaCommonConfig;
 
-public class LambdaSinkConfig {
+public class LambdaSinkConfig extends LambdaCommonConfig {
 
-    private static final int DEFAULT_CONNECTION_RETRIES = 3;
-    public static final String STS_REGION = "region";
-    public static final String STS_ROLE_ARN = "sts_role_arn";
+  @JsonPropertyDescription("invocation type defines the way we want to call lambda function")
+  @JsonProperty("invocation_type")
+  private InvocationType invocationType = InvocationType.EVENT;
 
-    @JsonProperty("aws")
-    @NotNull
-    @Valid
-    private AwsAuthenticationOptions awsAuthenticationOptions;
+  @JsonProperty("dlq")
+  private PluginModel dlq;
 
-    @JsonProperty("function_name")
-    @NotEmpty
-    @NotNull
-    @Size(min = 3, max = 500, message = "function name length should be at least 3 characters")
-    private String functionName;
+  public PluginModel getDlq() {
+    return dlq;
+  }
 
-    @JsonProperty("max_retries")
-    private int maxConnectionRetries = DEFAULT_CONNECTION_RETRIES;
+  public String getDlqStsRoleARN() {
+    return dlq != null ? (Objects.nonNull(getDlqPluginSetting().get(STS_ROLE_ARN)) ?
+        String.valueOf(getDlqPluginSetting().get(STS_ROLE_ARN)) :
+        getAwsAuthenticationOptions().getAwsStsRoleArn()) : null;
+  }
 
-    @JsonProperty("invocation_type")
-    private String invocationType = EVENT;
+  public String getDlqStsRegion() {
+    return dlq != null ? (Objects.nonNull(getDlqPluginSetting().get(STS_REGION)) ?
+        String.valueOf(getDlqPluginSetting().get(STS_REGION)) :
+        getAwsAuthenticationOptions().getAwsRegion().toString()) : null;
+  }
 
-    @JsonProperty("payload_model")
-    private String payloadModel = BATCH_EVENT;
+  public Map<String, Object> getDlqPluginSetting() {
+    return dlq != null ? dlq.getPluginSettings() : null;
+  }
 
-    @JsonProperty("dlq")
-    private PluginModel dlq;
-
-    @JsonProperty("batch")
-    private BatchOptions batchOptions;
-
-    @JsonProperty("lambda_when")
-    private String whenCondition;
-
-    public AwsAuthenticationOptions getAwsAuthenticationOptions() {
-        return awsAuthenticationOptions;
-    }
-
-    public BatchOptions getBatchOptions(){return batchOptions;}
-
-    public String getFunctionName() {
-        return functionName;
-    }
-
-    public int getMaxConnectionRetries() {
-        return maxConnectionRetries;
-    }
-
-    public PluginModel getDlq() {
-        return dlq;
-    }
-
-    public String getDlqStsRoleARN(){
-        return Objects.nonNull(getDlqPluginSetting().get(STS_ROLE_ARN)) ?
-                String.valueOf(getDlqPluginSetting().get(STS_ROLE_ARN)) :
-                awsAuthenticationOptions.getAwsStsRoleArn();
-    }
-
-    public String getDlqStsRegion(){
-        return Objects.nonNull(getDlqPluginSetting().get(STS_REGION)) ?
-                String.valueOf(getDlqPluginSetting().get(STS_REGION)) :
-                awsAuthenticationOptions.getAwsRegion().toString();
-    }
-
-    public  Map<String, Object> getDlqPluginSetting(){
-        return dlq != null ? dlq.getPluginSettings() : Map.of();
-    }
-
-    public String getInvocationType(){return invocationType;}
-
-    public String getWhenCondition() {
-        return whenCondition;
-    }
-
-    public String getPayloadModel() {
-        return payloadModel;
-    }
+  @Override
+  public InvocationType getInvocationType() {
+    return invocationType;
+  }
 }

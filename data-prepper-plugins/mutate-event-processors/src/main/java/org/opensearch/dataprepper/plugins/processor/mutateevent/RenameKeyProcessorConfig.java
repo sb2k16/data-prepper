@@ -5,29 +5,51 @@
 
 package org.opensearch.dataprepper.plugins.processor.mutateevent;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonClassDescription;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import org.opensearch.dataprepper.model.annotations.AlsoRequired;
+import org.opensearch.dataprepper.model.annotations.ExampleValues;
+import org.opensearch.dataprepper.model.annotations.ExampleValues.Example;
 import org.opensearch.dataprepper.model.event.EventKey;
 import org.opensearch.dataprepper.model.event.EventKeyConfiguration;
 import org.opensearch.dataprepper.model.event.EventKeyFactory;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 @JsonPropertyOrder
-@JsonClassDescription("The `rename_keys` processor renames keys in an event.")
+@JsonClassDescription("The <code>rename_keys</code> processor renames keys in an event.")
 public class RenameKeyProcessorConfig {
+    @JsonPropertyOrder
     public static class Entry {
-        @NotEmpty
-        @NotNull
-        @JsonProperty("from_key")
-        @JsonPropertyDescription("The key of the entry to be renamed.")
+        static  final String FROM_KEY = "from_key";
+        static final String FROM_KEY_REGEX = "from_key_regex";
+        @JsonProperty(defaultValue = FROM_KEY)
+        @JsonPropertyDescription("The key of the entry to be renamed. " +
+                "This field cannot be defined along with <code>from_key_regex</code>.")
+        @AlsoRequired(values = {
+                @AlsoRequired.Required(name = FROM_KEY_REGEX, allowedValues = {"null"})
+        })
         @EventKeyConfiguration({EventKeyFactory.EventAction.GET, EventKeyFactory.EventAction.DELETE})
         private EventKey fromKey;
+
+
+        @JsonProperty(defaultValue = FROM_KEY_REGEX)
+        @JsonPropertyDescription("The regex pattern of the key of the entry to be renamed. " +
+                "This field cannot be defined along with <code>from_key</code>.")
+        @ExampleValues(
+                @Example(value = "regex", description = "Generic regex string.")
+        )
+        @AlsoRequired(values = {
+                @AlsoRequired.Required(name = FROM_KEY, allowedValues = {"null"})
+        })
+        private String fromKeyRegex;
 
         @NotEmpty
         @NotNull
@@ -41,13 +63,22 @@ public class RenameKeyProcessorConfig {
         private boolean overwriteIfToKeyExists = false;
 
         @JsonProperty("rename_when")
-        @JsonPropertyDescription("A Data Prepper <a href=\"https://opensearch.org/docs/latest/data-prepper/pipelines/expression-syntax/\">conditional expression</a>, " +
-                "such as <code>/some-key == \"test\"'</code>, that will be evaluated to determine whether the processor will be " +
-                "run on the event. Default is <code>null</code>. All events will be processed unless otherwise stated.")
+        @JsonPropertyDescription("A <a href=\"https://opensearch.org/docs/latest/data-prepper/pipelines/expression-syntax/\">conditional expression</a> " +
+                "that will be evaluated to determine whether the processor will be run on the event. " +
+                "By default, all events will be processed if no condition is provided.")
+        @ExampleValues(
+                @Example(value = "startsWith(/path, \"https://\")", description = "Rename the string only if it starts with an HTTPS scheme.")
+        )
         private String renameWhen;
+
+        private Pattern fromKeyCompiledPattern;
 
         public EventKey getFromKey() {
             return fromKey;
+        }
+
+        public String getFromKeyPattern() {
+            return fromKeyRegex;
         }
 
         public EventKey getToKey() {
@@ -58,10 +89,21 @@ public class RenameKeyProcessorConfig {
             return overwriteIfToKeyExists;
         }
 
-        public String getRenameWhen() { return renameWhen; }
+        public String getRenameWhen() {
+            return renameWhen;
+        }
 
-        public Entry(final EventKey fromKey, final EventKey toKey, final boolean overwriteIfKeyExists, final String renameWhen) {
+        @JsonIgnore
+        public Pattern getFromKeyCompiledPattern() {
+            if (fromKeyRegex != null && fromKeyCompiledPattern == null) {
+                fromKeyCompiledPattern = Pattern.compile(fromKeyRegex);
+            }
+            return fromKeyCompiledPattern;
+        }
+
+        public Entry(final EventKey fromKey, final String fromKeyPattern, final EventKey toKey, final boolean overwriteIfKeyExists, final String renameWhen) {
             this.fromKey = fromKey;
+            this.fromKeyRegex = fromKeyPattern;
             this.toKey = toKey;
             this.overwriteIfToKeyExists = overwriteIfKeyExists;
             this.renameWhen = renameWhen;

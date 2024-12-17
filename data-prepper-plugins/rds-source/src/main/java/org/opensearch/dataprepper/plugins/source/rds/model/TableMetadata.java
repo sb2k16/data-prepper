@@ -5,19 +5,32 @@
 
 package org.opensearch.dataprepper.plugins.source.rds.model;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class TableMetadata {
+    public static final String DOT_DELIMITER = ".";
+
     private String databaseName;
     private String tableName;
     private List<String> columnNames;
     private List<String> primaryKeys;
+    private Map<String, String[]> setStrValues;
+    private Map<String, String[]> enumStrValues;
 
     public TableMetadata(String tableName, String databaseName, List<String> columnNames, List<String> primaryKeys) {
+        this(tableName, databaseName, columnNames, primaryKeys, Collections.emptyMap(), Collections.emptyMap());
+    }
+
+    public TableMetadata(String tableName, String databaseName, List<String> columnNames, List<String> primaryKeys,
+                         Map<String, String[]> setStrValues, Map<String, String[]> enumStrValues) {
         this.tableName = tableName;
         this.databaseName = databaseName;
         this.columnNames = columnNames;
         this.primaryKeys = primaryKeys;
+        this.setStrValues = setStrValues;
+        this.enumStrValues = enumStrValues;
     }
 
     public String getDatabaseName() {
@@ -29,7 +42,7 @@ public class TableMetadata {
     }
 
     public String getFullTableName() {
-        return databaseName + "." + tableName;
+        return databaseName + DOT_DELIMITER + tableName;
     }
 
     public List<String> getColumnNames() {
@@ -56,4 +69,19 @@ public class TableMetadata {
         this.primaryKeys = primaryKeys;
     }
 
+    public Map<String, String[]> getSetStrValues() {
+        return setStrValues;
+    }
+
+    public void setSetStrValues(Map<String, String[]> setStrValues) {
+        this.setStrValues = setStrValues;
+    }
+
+    public Map<String, String[]> getEnumStrValues() {
+        return enumStrValues;
+    }
+
+    public void setEnumStrValues(Map<String, String[]> enumStrValues) {
+        this.enumStrValues = enumStrValues;
+    }
 }

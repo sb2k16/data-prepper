@@ -36,9 +36,9 @@ import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisServiceClientConfiguration;
-import software.amazon.awssdk.services.kinesis.model.DescribeStreamRequest;
-import software.amazon.awssdk.services.kinesis.model.DescribeStreamResponse;
-import software.amazon.awssdk.services.kinesis.model.StreamDescription;
+import software.amazon.awssdk.services.kinesis.model.DescribeStreamSummaryRequest;
+import software.amazon.awssdk.services.kinesis.model.DescribeStreamSummaryResponse;
+import software.amazon.awssdk.services.kinesis.model.StreamDescriptionSummary;
 import software.amazon.kinesis.common.InitialPositionInStream;
 import software.amazon.kinesis.coordinator.Scheduler;
 import software.amazon.kinesis.metrics.MetricsLevel;
@@ -56,6 +56,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -67,7 +69,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class KinesisServiceTest {
-    private final String PIPELINE_NAME = "kinesis-pipeline-test";
     private final String streamId = "stream-1";
     private static final String codec_plugin_name = "json";
 
@@ -75,6 +76,7 @@ public class KinesisServiceTest {
     private static final int NUMBER_OF_RECORDS_TO_ACCUMULATE = 10;
     private static final int DEFAULT_MAX_RECORDS = 10000;
     private static final int IDLE_TIME_BETWEEN_READS_IN_MILLIS = 250;
+    private static final int DEFAULT_INITIALIZATION_ATTEMPTS = 10;
     private static final String awsAccountId = "123456789012";
     private static final String streamArnFormat = "arn:aws:kinesis:us-east-1:%s:stream/%s";
     private static final Instant streamCreationTime = Instant.now();
@@ -132,8 +134,11 @@ public class KinesisServiceTest {
     @Mock
     WorkerIdentifierGenerator workerIdentifierGenerator;
 
+    private String pipelineName;
+
     @BeforeEach
     void setup() {
+        pipelineName = UUID.randomUUID().toString();
         awsAuthenticationConfig = mock(AwsAuthenticationConfig.class);
         kinesisSourceConfig = mock(KinesisSourceConfig.class);
         kinesisStreamConfig = mock(KinesisStreamConfig.class);
@@ -160,21 +165,22 @@ public class KinesisServiceTest {
         when(awsAuthenticationConfig.getAwsStsExternalId()).thenReturn(UUID.randomUUID().toString());
         final Map<String, String> stsHeaderOverrides = Map.of(UUID.randomUUID().toString(), UUID.randomUUID().toString());
         when(awsAuthenticationConfig.getAwsStsHeaderOverrides()).thenReturn(stsHeaderOverrides);
-        StreamDescription streamDescription = StreamDescription.builder()
+        StreamDescriptionSummary streamDescriptionSummary = StreamDescriptionSummary.builder()
                 .streamARN(String.format(streamArnFormat, awsAccountId, streamId))
                 .streamCreationTimestamp(streamCreationTime)
                 .streamName(streamId)
                 .build();
 
-        DescribeStreamRequest describeStreamRequest = DescribeStreamRequest.builder()
+        DescribeStreamSummaryRequest describeStreamSummaryRequest = DescribeStreamSummaryRequest.builder()
                 .streamName(streamId)
                 .build();
 
-        DescribeStreamResponse describeStreamResponse = DescribeStreamResponse.builder()
-                .streamDescription(streamDescription)
+        DescribeStreamSummaryResponse describeStreamSummaryResponse = DescribeStreamSummaryResponse.builder()
+                .streamDescriptionSummary(streamDescriptionSummary)
                 .build();
 
-        when(kinesisClient.describeStream(describeStreamRequest)).thenReturn(CompletableFuture.completedFuture(describeStreamResponse));
+        when(kinesisClient.describeStreamSummary(describeStreamSummaryRequest))
+                .thenReturn(CompletableFuture.completedFuture(describeStreamSummaryResponse));
 
         when(kinesisSourceConfig.getAwsAuthenticationConfig()).thenReturn(awsAuthenticationConfig);
         when(kinesisStreamConfig.getName()).thenReturn(streamId);
@@ -189,6 +195,7 @@ public class KinesisServiceTest {
         streamConfigs.add(kinesisStreamConfig);
         when(kinesisSourceConfig.getStreams()).thenReturn(streamConfigs);
         when(kinesisSourceConfig.getNumberOfRecordsToAccumulate()).thenReturn(NUMBER_OF_RECORDS_TO_ACCUMULATE);
+        when(kinesisSourceConfig.getMaxInitializationAttempts()).thenReturn(DEFAULT_INITIALIZATION_ATTEMPTS);
 
         PluginModel pluginModel = mock(PluginModel.class);
         when(pluginModel.getPluginName()).thenReturn(codec_plugin_name);
@@ -204,7 +211,7 @@ public class KinesisServiceTest {
         when(kinesisClientFactory.buildCloudWatchAsyncClient(kinesisLeaseCoordinationTableConfig.getAwsRegion())).thenReturn(cloudWatchClient);
         when(kinesisClient.serviceClientConfiguration()).thenReturn(KinesisServiceClientConfiguration.builder().region(Region.US_EAST_1).build());
         when(scheduler.startGracefulShutdown()).thenReturn(CompletableFuture.completedFuture(true));
-        when(pipelineDescription.getPipelineName()).thenReturn(PIPELINE_NAME);
+        when(pipelineDescription.getPipelineName()).thenReturn(pipelineName);
         when(workerIdentifierGenerator.generate()).thenReturn(UUID.randomUUID().toString());
     }
 
@@ -218,6 +225,7 @@ public class KinesisServiceTest {
         KinesisService kinesisService = createObjectUnderTest();
         kinesisService.start(buffer);
         assertNotNull(kinesisService.getScheduler(buffer));
+        assertEquals(kinesisService.getApplicationName(), pipelineName);
         verify(workerIdentifierGenerator, times(1)).generate();
     }
 
@@ -243,6 +251,8 @@ public class KinesisServiceTest {
         assertSame(schedulerObjectUnderTest.metricsConfig().metricsLevel(), MetricsLevel.DETAILED);
         assertNotNull(schedulerObjectUnderTest.processorConfig());
         assertNotNull(schedulerObjectUnderTest.retrievalConfig());
+        assertNotNull(kinesisService.getApplicationName());
+        assertEquals(kinesisService.getApplicationName(), pipelineName);
         verify(workerIdentifierGenerator, times(1)).generate();
     }
 
@@ -253,6 +263,7 @@ public class KinesisServiceTest {
                 pipelineDescription, acknowledgementSetManager, kinesisLeaseConfigSupplier, workerIdentifierGenerator);
         Scheduler schedulerObjectUnderTest = kinesisService.createScheduler(buffer);
 
+        assertEquals(kinesisService.getApplicationName(), pipelineName);
         assertNotNull(schedulerObjectUnderTest);
         assertNotNull(schedulerObjectUnderTest.checkpointConfig());
         assertNotNull(schedulerObjectUnderTest.leaseManagementConfig());
@@ -265,12 +276,12 @@ public class KinesisServiceTest {
         verify(workerIdentifierGenerator, times(1)).generate();
     }
 
-
     @Test
     void testServiceStartNullBufferThrows() {
         KinesisService kinesisService = createObjectUnderTest();
         assertThrows(IllegalStateException.class, () -> kinesisService.start(null));
 
+        assertEquals(kinesisService.getApplicationName(), pipelineName);
         verify(scheduler, times(0)).run();
     }
 
@@ -281,6 +292,7 @@ public class KinesisServiceTest {
         KinesisService kinesisService = createObjectUnderTest();
         assertThrows(InvalidPluginConfigurationException.class, () -> kinesisService.start(buffer));
 
+        assertEquals(kinesisService.getApplicationName(), pipelineName);
         verify(scheduler, times(0)).run();
     }
 
@@ -291,6 +303,7 @@ public class KinesisServiceTest {
         KinesisService kinesisService = createObjectUnderTest();
         assertThrows(InvalidPluginConfigurationException.class, () -> kinesisService.start(buffer));
 
+        assertEquals(kinesisService.getApplicationName(), pipelineName);
         verify(scheduler, times(0)).run();
     }
 
@@ -350,4 +363,67 @@ public class KinesisServiceTest {
         verify(scheduler).shutdown();
     }
 
+    @Test
+    void testCreateSchedulerWithValidPipelineId() {
+        final String pipelineIdentifier = UUID.randomUUID().toString();
+        when(kinesisLeaseConfig.getPipelineIdentifier()).thenReturn(pipelineIdentifier);
+        KinesisService kinesisService = new KinesisService(kinesisSourceConfig, kinesisClientFactory, pluginMetrics, pluginFactory,
+                pipelineDescription, acknowledgementSetManager, kinesisLeaseConfigSupplier, workerIdentifierGenerator);
+        Scheduler schedulerObjectUnderTest = kinesisService.createScheduler(buffer);
+
+        assertNotNull(schedulerObjectUnderTest);
+        assertNotNull(schedulerObjectUnderTest.checkpointConfig());
+        assertNotNull(schedulerObjectUnderTest.leaseManagementConfig());
+        assertSame(schedulerObjectUnderTest.leaseManagementConfig().initialPositionInStream().getInitialPositionInStream(), InitialPositionInStream.TRIM_HORIZON);
+        assertNotNull(schedulerObjectUnderTest.lifecycleConfig());
+        assertNotNull(schedulerObjectUnderTest.metricsConfig());
+        assertSame(schedulerObjectUnderTest.metricsConfig().metricsLevel(), MetricsLevel.DETAILED);
+        assertNotNull(schedulerObjectUnderTest.processorConfig());
+        assertNotNull(schedulerObjectUnderTest.retrievalConfig());
+        assertNotNull(kinesisService.getApplicationName());
+        assertEquals(kinesisService.getApplicationName(), pipelineIdentifier);
+        assertNotEquals(kinesisService.getApplicationName(), pipelineName);
+        verify(workerIdentifierGenerator, times(1)).generate();
+    }
+
+    @Test
+    void testCreateSchedulerWithNullPipelineId() {
+        when(kinesisLeaseConfig.getPipelineIdentifier()).thenReturn(null);
+        KinesisService kinesisService = new KinesisService(kinesisSourceConfig, kinesisClientFactory, pluginMetrics, pluginFactory,
+                pipelineDescription, acknowledgementSetManager, kinesisLeaseConfigSupplier, workerIdentifierGenerator);
+        Scheduler schedulerObjectUnderTest = kinesisService.createScheduler(buffer);
+
+        assertNotNull(schedulerObjectUnderTest);
+        assertNotNull(schedulerObjectUnderTest.checkpointConfig());
+        assertNotNull(schedulerObjectUnderTest.leaseManagementConfig());
+        assertSame(schedulerObjectUnderTest.leaseManagementConfig().initialPositionInStream().getInitialPositionInStream(), InitialPositionInStream.TRIM_HORIZON);
+        assertNotNull(schedulerObjectUnderTest.lifecycleConfig());
+        assertNotNull(schedulerObjectUnderTest.metricsConfig());
+        assertSame(schedulerObjectUnderTest.metricsConfig().metricsLevel(), MetricsLevel.DETAILED);
+        assertNotNull(schedulerObjectUnderTest.processorConfig());
+        assertNotNull(schedulerObjectUnderTest.retrievalConfig());
+        assertNotNull(kinesisService.getApplicationName());
+        assertEquals(kinesisService.getApplicationName(), pipelineName);
+        verify(workerIdentifierGenerator, times(1)).generate();
+    }
+    @Test
+    void testCreateSchedulerWithEmptyPipelineId() {
+        when(kinesisLeaseConfig.getPipelineIdentifier()).thenReturn("");
+        KinesisService kinesisService = new KinesisService(kinesisSourceConfig, kinesisClientFactory, pluginMetrics, pluginFactory,
+                pipelineDescription, acknowledgementSetManager, kinesisLeaseConfigSupplier, workerIdentifierGenerator);
+        Scheduler schedulerObjectUnderTest = kinesisService.createScheduler(buffer);
+
+        assertNotNull(schedulerObjectUnderTest);
+        assertNotNull(schedulerObjectUnderTest.checkpointConfig());
+        assertNotNull(schedulerObjectUnderTest.leaseManagementConfig());
+        assertSame(schedulerObjectUnderTest.leaseManagementConfig().initialPositionInStream().getInitialPositionInStream(), InitialPositionInStream.TRIM_HORIZON);
+        assertNotNull(schedulerObjectUnderTest.lifecycleConfig());
+        assertNotNull(schedulerObjectUnderTest.metricsConfig());
+        assertSame(schedulerObjectUnderTest.metricsConfig().metricsLevel(), MetricsLevel.DETAILED);
+        assertNotNull(schedulerObjectUnderTest.processorConfig());
+        assertNotNull(schedulerObjectUnderTest.retrievalConfig());
+        assertNotNull(kinesisService.getApplicationName());
+        assertEquals(kinesisService.getApplicationName(), pipelineName);
+        verify(workerIdentifierGenerator, times(1)).generate();
+    }
 }

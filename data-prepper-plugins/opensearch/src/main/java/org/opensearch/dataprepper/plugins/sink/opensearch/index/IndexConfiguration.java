@@ -244,7 +244,8 @@ public class IndexConfiguration {
 
         builder = builder.withVersionExpression(versionExpression);
         if (versionExpression != null && (!expressionEvaluator.isValidFormatExpression(versionExpression))) {
-            throw new InvalidPluginConfigurationException("document_version {} is not a valid format expression.");
+            throw new InvalidPluginConfigurationException(
+                    String.format("document_version \"%s\" is not a valid format expression.", versionExpression));
         }
 
         builder = builder.withVersionType(versionType);
@@ -424,6 +425,10 @@ public class IndexConfiguration {
                 templateURL = loadExistingTemplate(templateType, IndexConstants.RAW_DEFAULT_TEMPLATE_FILE);
             } else if (indexType.equals(IndexType.TRACE_ANALYTICS_SERVICE_MAP)) {
                 templateURL = loadExistingTemplate(templateType, IndexConstants.SERVICE_MAP_DEFAULT_TEMPLATE_FILE);
+            } else if (indexType.equals(IndexType.LOG_ANALYTICS)) {
+                templateURL = loadExistingTemplate(templateType, IndexConstants.LOGS_DEFAULT_TEMPLATE_FILE);
+            } else if (indexType.equals(IndexType.METRIC_ANALYTICS)) {
+                templateURL = loadExistingTemplate(templateType, IndexConstants.METRICS_DEFAULT_TEMPLATE_FILE);
             } else if (templateFile != null) {
                 if (templateFile.toLowerCase().startsWith(S3_PREFIX)) {
                     FileReader s3FileReader = new S3FileReader(s3Client);

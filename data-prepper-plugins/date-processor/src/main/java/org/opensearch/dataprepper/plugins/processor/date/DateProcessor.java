@@ -67,7 +67,9 @@ public class DateProcessor extends AbstractProcessor<Record<Event>, Record<Event
             extractKeyAndFormatters();
 
         if (dateProcessorConfig.getDateWhen() != null && (!expressionEvaluator.isValidExpressionStatement(dateProcessorConfig.getDateWhen()))) {
-            throw new InvalidPluginConfigurationException("date_when {} is not a valid expression statement. See https://opensearch.org/docs/latest/data-prepper/pipelines/expression-syntax/ for valid expression syntax");
+            throw new InvalidPluginConfigurationException(
+                    String.format("date_when \"%s\" is not a valid expression statement. See https://opensearch.org/docs/latest/data-prepper/pipelines/expression-syntax/ for valid expression syntax",
+                            dateProcessorConfig.getDateWhen()));
         }
     }
 
@@ -132,9 +134,11 @@ public class DateProcessor extends AbstractProcessor<Record<Event>, Record<Event
                 .appendPattern(pattern)
                 .parseDefaulting(ChronoField.MONTH_OF_YEAR, localDateForDefaultValues.getMonthValue())
                 .parseDefaulting(ChronoField.DAY_OF_MONTH, localDateForDefaultValues.getDayOfMonth())
-                .parseDefaulting(ChronoField.HOUR_OF_DAY, 0)
                 .parseDefaulting(ChronoField.MINUTE_OF_HOUR, 0)
                 .parseDefaulting(ChronoField.SECOND_OF_MINUTE, 0);
+
+        if(!pattern.contains("a") && !pattern.contains("k"))
+            dateTimeFormatterBuilder.parseDefaulting(ChronoField.HOUR_OF_DAY, 0);
 
         if (!(pattern.contains("y") || pattern.contains("u")))
             dateTimeFormatterBuilder.parseDefaulting(ChronoField.YEAR_OF_ERA, localDateForDefaultValues.getYear());

@@ -6,6 +6,7 @@
 package org.opensearch.dataprepper.plugins.source.oteltrace;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.util.JsonFormat;
@@ -13,6 +14,7 @@ import com.linecorp.armeria.client.ClientFactory;
 import com.linecorp.armeria.client.Clients;
 import com.linecorp.armeria.client.WebClient;
 import com.linecorp.armeria.common.AggregatedHttpResponse;
+import com.linecorp.armeria.common.ClosedSessionException;
 import com.linecorp.armeria.common.HttpData;
 import com.linecorp.armeria.common.HttpHeaderNames;
 import com.linecorp.armeria.common.HttpMethod;
@@ -20,7 +22,6 @@ import com.linecorp.armeria.common.HttpStatus;
 import com.linecorp.armeria.common.MediaType;
 import com.linecorp.armeria.common.RequestHeaders;
 import com.linecorp.armeria.common.SessionProtocol;
-import com.linecorp.armeria.common.grpc.GrpcStatusFunction;
 import com.linecorp.armeria.server.HttpService;
 import com.linecorp.armeria.server.Server;
 import com.linecorp.armeria.server.ServerBuilder;
@@ -55,6 +56,7 @@ import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.opensearch.dataprepper.GrpcRequestExceptionHandler;
 import org.opensearch.dataprepper.armeria.authentication.GrpcAuthenticationProvider;
 import org.opensearch.dataprepper.armeria.authentication.HttpBasicAuthenticationConfig;
 import org.opensearch.dataprepper.metrics.MetricNames;
@@ -81,6 +83,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
@@ -91,6 +94,7 @@ import java.util.Optional;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
@@ -98,6 +102,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
 
+import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
@@ -134,8 +139,9 @@ class OTelTraceSourceTest {
     private static final String USERNAME = "test_user";
     private static final String PASSWORD = "test_password";
     private static final String TEST_PATH = "${pipelineName}/v1/traces";
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
     private static final String TEST_PIPELINE_NAME = "test_pipeline";
+    private static final RetryInfoConfig TEST_RETRY_INFO = new RetryInfoConfig(Duration.ofMillis(50), Duration.ofMillis(2000));
     private static final ExportTraceServiceRequest SUCCESS_REQUEST = ExportTraceServiceRequest.newBuilder()
             .addResourceSpans(ResourceSpans.newBuilder()
                     .addInstrumentationLibrarySpans(InstrumentationLibrarySpans.newBuilder()
@@ -202,7 +208,8 @@ class OTelTraceSourceTest {
         lenient().when(grpcServiceBuilder.addService(any(BindableService.class))).thenReturn(grpcServiceBuilder);
         lenient().when(grpcServiceBuilder.useClientTimeoutHeader(anyBoolean())).thenReturn(grpcServiceBuilder);
         lenient().when(grpcServiceBuilder.useBlockingTaskExecutor(anyBoolean())).thenReturn(grpcServiceBuilder);
-        lenient().when(grpcServiceBuilder.exceptionMapping(any(GrpcStatusFunction.class))).thenReturn(grpcServiceBuilder);
+        lenient().when(grpcServiceBuilder.exceptionHandler(any(
+                GrpcRequestExceptionHandler.class))).thenReturn(grpcServiceBuilder);
         lenient().when(grpcServiceBuilder.build()).thenReturn(grpcService);
 
         lenient().when(authenticationProvider.getHttpAuthenticationService()).thenCallRealMethod();
@@ -213,6 +220,7 @@ class OTelTraceSourceTest {
         when(oTelTraceSourceConfig.getMaxConnectionCount()).thenReturn(10);
         when(oTelTraceSourceConfig.getThreadCount()).thenReturn(5);
         when(oTelTraceSourceConfig.getCompression()).thenReturn(CompressionOption.NONE);
+        when(oTelTraceSourceConfig.getRetryInfo()).thenReturn(TEST_RETRY_INFO);
 
         when(pluginFactory.loadPlugin(eq(GrpcAuthenticationProvider.class), any(PluginSetting.class)))
                 .thenReturn(authenticationProvider);
@@ -457,6 +465,108 @@ class OTelTraceSourceTest {
                 .join();
     }
 
+    @Test
+    void testHttpRequestWithInvalidCredentialsShouldReturnUnauthorized() throws InvalidProtocolBufferException {
+        when(httpBasicAuthenticationConfig.getUsername()).thenReturn(USERNAME);
+        when(httpBasicAuthenticationConfig.getPassword()).thenReturn(PASSWORD);
+        final GrpcAuthenticationProvider grpcAuthenticationProvider = new GrpcBasicAuthenticationProvider(httpBasicAuthenticationConfig);
+
+        when(pluginFactory.loadPlugin(eq(GrpcAuthenticationProvider.class), any(PluginSetting.class)))
+                .thenReturn(grpcAuthenticationProvider);
+        when(oTelTraceSourceConfig.getAuthentication()).thenReturn(new PluginModel("http_basic",
+                Map.of(
+                        "username", USERNAME,
+                        "password", PASSWORD
+                )));
+        when(oTelTraceSourceConfig.enableUnframedRequests()).thenReturn(true);
+        when(oTelTraceSourceConfig.getPath()).thenReturn(TEST_PATH);
+        configureObjectUnderTest();
+        SOURCE.start(buffer);
+    
+        final String transformedPath = "/" + TEST_PIPELINE_NAME + "/v1/traces";
+    
+        final String invalidUsername = "wrong_user";
+        final String invalidPassword = "wrong_password";
+        final String invalidCredentials = Base64.getEncoder()
+                .encodeToString(String.format("%s:%s", invalidUsername, invalidPassword).getBytes(StandardCharsets.UTF_8));
+    
+        WebClient.of().prepare()
+                .post("http://127.0.0.1:21890" + transformedPath)
+                .content(MediaType.JSON_UTF_8, JsonFormat.printer().print(createExportTraceRequest()).getBytes())
+                .header("Authorization", "Basic " + invalidCredentials)
+                .execute()
+                .aggregate()
+                .whenComplete((response, throwable) -> assertSecureResponseWithStatusCode(response, HttpStatus.UNAUTHORIZED, throwable))
+                .join();
+    }
+
+    @Test
+    void testGrpcRequestWithoutAuthentication_with_unsuccessful_response() throws Exception {
+        when(httpBasicAuthenticationConfig.getUsername()).thenReturn(USERNAME);
+        when(httpBasicAuthenticationConfig.getPassword()).thenReturn(PASSWORD);
+        final GrpcAuthenticationProvider grpcAuthenticationProvider = new GrpcBasicAuthenticationProvider(httpBasicAuthenticationConfig);
+    
+        when(pluginFactory.loadPlugin(eq(GrpcAuthenticationProvider.class), any(PluginSetting.class)))
+                .thenReturn(grpcAuthenticationProvider);
+        when(oTelTraceSourceConfig.getAuthentication()).thenReturn(new PluginModel("http_basic",
+                Map.of(
+                        "username", USERNAME,
+                        "password", PASSWORD
+                )));
+        configureObjectUnderTest();
+        SOURCE.start(buffer);
+    
+        final TraceServiceGrpc.TraceServiceBlockingStub client = Clients.builder(GRPC_ENDPOINT)
+                .build(TraceServiceGrpc.TraceServiceBlockingStub.class);
+    
+        final StatusRuntimeException actualException = assertThrows(StatusRuntimeException.class, () -> client.export(createExportTraceRequest()));
+    
+        assertThat(actualException.getStatus(), notNullValue());
+        assertThat(actualException.getStatus().getCode(), equalTo(Status.Code.UNAUTHENTICATED));
+    }
+
+    @Test
+    void testHttpWithoutSslFailsWhenSslIsEnabled() throws InvalidProtocolBufferException {
+        when(oTelTraceSourceConfig.isSsl()).thenReturn(true);
+        when(oTelTraceSourceConfig.getSslKeyCertChainFile()).thenReturn("data/certificate/test_cert.crt");
+        when(oTelTraceSourceConfig.getSslKeyFile()).thenReturn("data/certificate/test_decrypted_key.key");
+        configureObjectUnderTest();
+        SOURCE.start(buffer);
+    
+        WebClient client = WebClient.builder("http://127.0.0.1:21890")
+                .build();
+    
+        CompletionException exception = assertThrows(CompletionException.class, () -> client.execute(RequestHeaders.builder()
+                        .scheme(SessionProtocol.HTTP)
+                        .authority("127.0.0.1:21890")
+                        .method(HttpMethod.POST)
+                        .path("/opentelemetry.proto.collector.trace.v1.TraceService/Export")
+                        .contentType(MediaType.JSON_UTF_8)
+                        .build(),
+                HttpData.copyOf(JsonFormat.printer().print(createExportTraceRequest()).getBytes()))
+                .aggregate()
+                .join());
+    
+        assertThat(exception.getCause(), instanceOf(ClosedSessionException.class));
+    }
+    
+    @Test
+    void testGrpcFailsIfSslIsEnabledAndNoTls() {
+        when(oTelTraceSourceConfig.isSsl()).thenReturn(true);
+        when(oTelTraceSourceConfig.getSslKeyCertChainFile()).thenReturn("data/certificate/test_cert.crt");
+        when(oTelTraceSourceConfig.getSslKeyFile()).thenReturn("data/certificate/test_decrypted_key.key");
+        configureObjectUnderTest();
+        SOURCE.start(buffer);
+    
+        TraceServiceGrpc.TraceServiceBlockingStub client = Clients.builder(GRPC_ENDPOINT)
+                .build(TraceServiceGrpc.TraceServiceBlockingStub.class);
+    
+        StatusRuntimeException actualException = assertThrows(StatusRuntimeException.class, () -> client.export(createExportTraceRequest()));
+    
+        assertThat(actualException.getStatus(), notNullValue());
+        assertThat(actualException.getStatus().getCode(), equalTo(Status.Code.UNKNOWN));
+    }
+    
     @Test
     void testServerStartCertFileSuccess() throws IOException {
         try (MockedStatic<Server> armeriaServerMock = Mockito.mockStatic(Server.class)) {
@@ -850,7 +960,9 @@ class OTelTraceSourceTest {
         // starting server
         SOURCE.start(buffer);
 
-        testPluginSetting = new PluginSetting(null, Collections.singletonMap(SSL, false));
+
+        Map<String, Object> settingsMap = Map.of("retry_info", TEST_RETRY_INFO, SSL, false);
+        testPluginSetting = new PluginSetting(null, settingsMap);
         testPluginSetting.setPipelineName("pipeline");
         oTelTraceSourceConfig = OBJECT_MAPPER.convertValue(testPluginSetting.getSettings(), OTelTraceSourceConfig.class);
         final OTelTraceSource source = new OTelTraceSource(oTelTraceSourceConfig, pluginMetrics, pluginFactory, pipelineDescription);

@@ -11,12 +11,14 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import org.opensearch.dataprepper.model.annotations.ExampleValues;
+import org.opensearch.dataprepper.model.annotations.ExampleValues.Example;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @JsonPropertyOrder
-@JsonClassDescription("The `map_to_list` processor converts a map of key-value pairs to a list of objects. " +
+@JsonClassDescription("The <code>map_to_list</code> processor converts a map of key-value pairs to a list of objects. " +
         "Each object contains the key and value in separate fields.")
 public class MapToListProcessorConfig {
     private static final String DEFAULT_KEY_NAME = "key";
@@ -36,24 +38,19 @@ public class MapToListProcessorConfig {
     @JsonPropertyDescription("The target for the generated list.")
     private String target;
 
-    @JsonProperty("key_name")
+    @JsonProperty(value = "key_name", defaultValue = DEFAULT_KEY_NAME)
     @JsonPropertyDescription("The name of the field in which to store the original key. Default is <code>key</code>.")
+    @ExampleValues({
+        @Example(value = "og_key", description = "The original key in the map is stored in 'og_key' in the list.")
+    })
     private String keyName = DEFAULT_KEY_NAME;
 
-    @JsonProperty("value_name")
+    @JsonProperty(value = "value_name", defaultValue = DEFAULT_VALUE_NAME)
     @JsonPropertyDescription("The name of the field in which to store the original value. Default is <code>value</code>.")
+    @ExampleValues({
+        @Example(value = "og_value", description = "The original value in the map is stored in 'og_value' in the list.")
+    })
     private String valueName = DEFAULT_VALUE_NAME;
-
-    @JsonProperty("map_to_list_when")
-    @JsonPropertyDescription("A Data Prepper <a href=\"https://opensearch.org/docs/latest/data-prepper/pipelines/expression-syntax/\">conditional expression</a>, " +
-            "such as <code>/some-key == \"test\"'</code>, that will be evaluated to determine whether the processor will " +
-            "be run on the event. Default is <code>null</code>. All events will be processed unless otherwise stated.")
-    private String mapToListWhen;
-
-    @JsonProperty("exclude_keys")
-    @JsonPropertyDescription("The keys in the source map that will be excluded from processing. Default is an " +
-            "empty list (<code>[]</code>).")
-    private List<String> excludeKeys = DEFAULT_EXCLUDE_KEYS;
 
     @JsonProperty("remove_processed_fields")
     @JsonPropertyDescription("When <code>true</code>, the processor will remove the processed fields from the source map. " +
@@ -65,9 +62,23 @@ public class MapToListProcessorConfig {
             "place them in fields in the target list. Default is <code>false</code>.")
     private boolean convertFieldToList = false;
 
+    @JsonProperty("exclude_keys")
+    @JsonPropertyDescription("The keys in the source map that will be excluded from processing. Default is an " +
+            "empty list (<code>[]</code>).")
+    private List<String> excludeKeys = DEFAULT_EXCLUDE_KEYS;
+
     @JsonProperty("tags_on_failure")
     @JsonPropertyDescription("A list of tags to add to the event metadata when the event fails to process.")
     private List<String> tagsOnFailure;
+
+    @JsonProperty("map_to_list_when")
+    @JsonPropertyDescription("A <a href=\"https://opensearch.org/docs/latest/data-prepper/pipelines/expression-syntax/\">conditional expression</a>, " +
+            "such as <code>/some-key == \"test\"</code>, that will be evaluated to determine whether the processor will " +
+            "be run on the event. By default, all events will be processed unless otherwise stated.")
+    @ExampleValues({
+        @Example(value = "/some-key == \"test\"", description = "When the key is 'test', the processor will be applied to the event.")
+    })
+    private String mapToListWhen;
 
     public String getSource() {
         return source;

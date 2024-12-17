@@ -10,6 +10,9 @@
 
 package org.opensearch.dataprepper.plugins.kinesis.source;
 
+import com.amazonaws.SdkClientException;
+import com.linecorp.armeria.client.retry.Backoff;
+import lombok.Getter;
 import lombok.Setter;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
@@ -35,9 +38,13 @@ import software.amazon.awssdk.services.dynamodb.model.BillingMode;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
 import software.amazon.kinesis.common.ConfigsBuilder;
 import software.amazon.kinesis.coordinator.Scheduler;
+import software.amazon.kinesis.exceptions.KinesisClientLibDependencyException;
+import software.amazon.kinesis.exceptions.ThrottlingException;
 import software.amazon.kinesis.processor.ShardRecordProcessorFactory;
 import software.amazon.kinesis.retrieval.polling.PollingConfig;
 
+import java.time.Duration;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -45,17 +52,24 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import static org.opensearch.dataprepper.logging.DataPrepperMarkers.NOISY;
+
 public class KinesisService {
     private static final Logger LOG = LoggerFactory.getLogger(KinesisService.class);
     private static final int GRACEFUL_SHUTDOWN_WAIT_INTERVAL_SECONDS = 20;
+    private static final long INITIAL_DELAY = Duration.ofSeconds(20).toMillis();
+    private static final long MAXIMUM_DELAY = Duration.ofMinutes(5).toMillis();
+    private static final double JITTER_RATE = 0.20;
+    private static final int NUM_OF_RETRIES = 3;
 
     private final PluginMetrics pluginMetrics;
     private final PluginFactory pluginFactory;
 
+    @Getter
     private final String applicationName;
+
     private final String tableName;
     private final String kclMetricsNamespaceName;
-    private final String pipelineName;
     private final AcknowledgementSetManager acknowledgementSetManager;
     private final KinesisSourceConfig kinesisSourceConfig;
     private final KinesisAsyncClient kinesisClient;
@@ -91,8 +105,12 @@ public class KinesisService {
         this.dynamoDbClient = kinesisClientFactory.buildDynamoDBClient(kinesisLeaseConfig.getLeaseCoordinationTable().getAwsRegion());
         this.kinesisClient = kinesisClientFactory.buildKinesisAsyncClient(kinesisSourceConfig.getAwsAuthenticationConfig().getAwsRegion());
         this.cloudWatchClient = kinesisClientFactory.buildCloudWatchAsyncClient(kinesisLeaseConfig.getLeaseCoordinationTable().getAwsRegion());
-        this.pipelineName = pipelineDescription.getPipelineName();
-        this.applicationName = pipelineName;
+        final String pipelineIdentifier = kinesisLeaseConfig.getPipelineIdentifier();
+        if (Objects.isNull(pipelineIdentifier) || pipelineIdentifier.isEmpty()) {
+            this.applicationName = pipelineDescription.getPipelineName();
+        } else {
+            this.applicationName = kinesisLeaseConfig.getPipelineIdentifier();
+            }
         this.workerIdentifierGenerator = workerIdentifierGenerator;
         this.executorService = Executors.newFixedThreadPool(1);
         final PluginModel codecConfiguration = kinesisSourceConfig.getCodec();
@@ -116,20 +134,39 @@ public class KinesisService {
     public void shutDown() {
         LOG.info("Stop request received for Kinesis Source");
 
-        Future<Boolean> gracefulShutdownFuture = scheduler.startGracefulShutdown();
-        LOG.info("Waiting up to {} seconds for shutdown to complete.", GRACEFUL_SHUTDOWN_WAIT_INTERVAL_SECONDS);
-        try {
-            gracefulShutdownFuture.get(GRACEFUL_SHUTDOWN_WAIT_INTERVAL_SECONDS, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException ex) {
-            LOG.error("Exception while executing kinesis consumer graceful shutdown, doing force shutdown", ex);
-            scheduler.shutdown();
+        if (scheduler != null) {
+            Future<Boolean> gracefulShutdownFuture = scheduler.startGracefulShutdown();
+            LOG.info("Waiting up to {} seconds for shutdown to complete.", GRACEFUL_SHUTDOWN_WAIT_INTERVAL_SECONDS);
+            try {
+                gracefulShutdownFuture.get(GRACEFUL_SHUTDOWN_WAIT_INTERVAL_SECONDS, TimeUnit.SECONDS);
+            } catch (InterruptedException | ExecutionException | TimeoutException ex) {
+                LOG.error("Exception while executing kinesis consumer graceful shutdown, doing force shutdown", ex);
+                scheduler.shutdown();
+            }
+            LOG.info("Completed, shutting down now.");
+        } else {
+            LOG.info("The Kinesis Scheduler was not initialized.");
         }
-        LOG.info("Completed, shutting down now.");
     }
 
     public Scheduler getScheduler(final Buffer<Record<Event>> buffer) {
-        if (scheduler == null) {
-            return createScheduler(buffer);
+        int maxAttempts = kinesisSourceConfig.getMaxInitializationAttempts();
+        while (scheduler == null && maxAttempts-- > 0 ) {
+            try {
+                scheduler = createScheduler(buffer);
+            } catch (SdkClientException | KinesisClientLibDependencyException | ThrottlingException ex) {
+                LOG.error(NOISY, "Caught exception when initializing KCL Scheduler due to {}. Number of remaining retries: {}", ex.getMessage(), maxAttempts);
+            } catch (Exception ex) {
+                LOG.error(NOISY, "Caught exception when initializing KCL Scheduler. Number of remaining retries: {}", maxAttempts, ex);
+            }
+
+            if (scheduler == null) {
+                try {
+                    Thread.sleep(kinesisSourceConfig.getInitializationBackoffTime().toMillis());
+                } catch (InterruptedException e){
+                    LOG.debug("Interrupted exception.");
+                }
+            }
         }
         return scheduler;
     }
@@ -140,7 +177,8 @@ public class KinesisService {
 
         ConfigsBuilder configsBuilder =
                 new ConfigsBuilder(
-                        new KinesisMultiStreamTracker(kinesisClient, kinesisSourceConfig, applicationName),
+                        new KinesisMultiStreamTracker(kinesisSourceConfig, applicationName, new KinesisClientApiHandler(kinesisClient, Backoff.exponential(INITIAL_DELAY, MAXIMUM_DELAY).withJitter(JITTER_RATE)
+                                .withMaxAttempts(NUM_OF_RETRIES), NUM_OF_RETRIES)),
                         applicationName, kinesisClient, dynamoDbClient, cloudWatchClient,
                         workerIdentifierGenerator.generate(), processorFactory
                 )
@@ -158,7 +196,9 @@ public class KinesisService {
 
         return new Scheduler(
                 configsBuilder.checkpointConfig(),
-                configsBuilder.coordinatorConfig(),
+                configsBuilder.coordinatorConfig()
+                        .schedulerInitializationBackoffTimeMillis(kinesisSourceConfig.getInitializationBackoffTime().toMillis())
+                        .maxInitializationAttempts(kinesisSourceConfig.getMaxInitializationAttempts()),
                 configsBuilder.leaseManagementConfig().billingMode(BillingMode.PAY_PER_REQUEST),
                 configsBuilder.lifecycleConfig(),
                 configsBuilder.metricsConfig(),

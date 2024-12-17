@@ -27,7 +27,7 @@ pipeline:
 
 The OpenSearch sink will reserve `otel-v1-apm-span-*` as index pattern and `otel-v1-apm-span` as index alias for record ingestion.
 
-### </a>Service map trace analytics
+### Service map trace analytics
 
 ```
 pipeline:
@@ -44,6 +44,45 @@ pipeline:
 ```
 
 The OpenSearch sink will reserve `otel-v1-apm-service-map` as index for record ingestion.
+
+### Log analytics
+
+```
+pipeline:
+  ...
+  sink:
+    opensearch:
+      hosts: ["https://localhost:9200"]
+      cert: path/to/cert
+      username: YOUR_USERNAME_HERE
+      password: YOUR_PASSWORD_HERE
+      index_type: log-analytics
+      dlq_file: /your/local/dlq-file
+      max_retries: 20
+      bulk_size: 4
+```
+
+The OpenSearch sink will reserve `logs-otel-v1-*` as index pattern and `logs-otel-v1` as index alias for record ingestion.
+
+### Metric analytics
+
+```
+pipeline:
+  ...
+  sink:
+    opensearch:
+      hosts: ["https://localhost:9200"]
+      cert: path/to/cert
+      username: YOUR_USERNAME_HERE
+      password: YOUR_PASSWORD_HERE
+      index_type: metric-analytics
+      dlq_file: /your/local/dlq-file
+      max_retries: 20
+      bulk_size: 4
+```
+
+The OpenSearch sink will reserve `metrics-otel-v1-*` as index pattern and `metrics-otel-v1` as index alias for record ingestion.
+
 
 ### Amazon OpenSearch Service
 
@@ -93,7 +132,7 @@ Default is null.
 
 - `proxy`(optional): A String of the address of a forward HTTP proxy. The format is like "<host-name-or-ip>:\<port\>". Examples: "example.com:8100", "http://example.com:8100", "112.112.112.112:8100". Note: port number cannot be omitted.
 
-- `index_type` (optional): a String from the list [`custom`, `trace-analytics-raw`, `trace-analytics-service-map`, `management_disabled`], which represents an index type. Defaults to `custom` if `serverless` is `false` in [AWS Configuration](#aws_configuration), otherwise defaults to `management_disabled`. This index_type instructs Sink plugin what type of data it is handling.
+- `index_type` (optional): a String from the list [`custom`, `trace-analytics-raw`, `trace-analytics-service-map`, `metric-analytics`, `log-analytics`, `management_disabled`], which represents an index type. Defaults to `custom` if `serverless` is `false` in [AWS Configuration](#aws_configuration), otherwise defaults to `management_disabled`. This index_type instructs Sink plugin what type of data it is handling.
 
 - `enable_request_compression` (optional): A boolean that enables or disables request compression when sending requests to OpenSearch. For `distribution_version` set to `es6`, default value is `false`, otherwise default value is `true`.
 
@@ -500,6 +539,69 @@ opensearch-source-pipeline:
         document_id_field: "getMetadata(\"opensearch-document_id\")"
         index: "${getMetadata(\"opensearch-index\"}"
 ```
+
+### MSK source to Opensearch Service pipeline
+The following example will read from MSK topic and ingest into OpenSearch Service domain. This example reads the date
+field from an incoming record and create date based indices based on the specified timestamp.
+
+```yaml
+msk-pipeline:
+  source:
+    kafka:
+      acknowledgement: true
+      topics:
+        - name: "TestTopic.Name"
+          group_id: "group-your-preferred-name"
+      aws:
+        sts_role_arn: "arn:aws:iam::123456789012:role/my-domain-role"
+        region: "us-east-1"
+        msk:
+          arn: "arn:aws:kafka:us-east-1:123456789012:cluster/my-cluster-name"
+      schema:
+          type: "aws_glue"
+          registry_url: "arn:aws:kafka:us-east-1:123456789012:registry/my-schema-registry"
+
+  processor:
+    - date:
+        match:
+          - key: "created_at"
+            patterns: ["epoch_milli"]
+        destination: "created_at_formatted"
+        output_format: "yyyy-MM-dd"
+
+  sink:
+    - opensearch:
+        hosts: [ "https://search-my-domain-soopywaovobopgs8ywurr3utsu.us-east-1.es.amazonaws.com" ]
+        aws:
+          region: "us-east-1"
+          sts_role_arn: "arn:aws:iam::123456789012:role/my-domain-role"
+        index: "index-prefix-${/created_at_formatted}"
+        document_id_field: "id"
+```
+The above example will parse the `created_at` timestamp field from the incoming record, parse it in the format
+`yyyy-MM-dd` and store it in the field `created_at_formatted`. You can then use this field to create date based
+indices by using the field in `index: "index-prefix-${/created_at_formatted}"`. If you have monthly based indices use
+` output_format: "yyyy-MM-dd"`
+
+For example, lets say you have following 2 records coming from source:
+```
+{
+  "message": "hello",
+  "created_at": 1723542856,
+  "type": "greeting"
+}
+```
+```
+{
+  "message": "how are you",
+  "created_at": 1723629256,
+  "type": "greeting"
+}
+```
+The first record will be ingested into the index with name `index-prefix-2024-08-13` and the second record would be 
+indexed into `index-prefix-2024-08-13`. This could be useful when replaying older data from kafka.
+
+
 
 ## Configuration
 

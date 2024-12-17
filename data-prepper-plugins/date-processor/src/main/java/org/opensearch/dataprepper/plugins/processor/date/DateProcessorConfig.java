@@ -11,17 +11,35 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import jakarta.validation.constraints.AssertTrue;
+import org.opensearch.dataprepper.model.annotations.AlsoRequired;
+import org.opensearch.dataprepper.model.annotations.ConditionalRequired;
+import org.opensearch.dataprepper.model.annotations.ConditionalRequired.IfThenElse;
+import org.opensearch.dataprepper.model.annotations.ConditionalRequired.SchemaProperty;
+import org.opensearch.dataprepper.model.annotations.ExampleValues;
+import org.opensearch.dataprepper.model.annotations.ExampleValues.Example;
 
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
 import java.time.format.DateTimeFormatter;
 
+@ConditionalRequired(value = {
+        @IfThenElse(
+                ifFulfilled = {@SchemaProperty(field = "match", value = "null")},
+                thenExpect = {@SchemaProperty(field = "from_time_received", value = "true")}
+        ),
+        @IfThenElse(
+                ifFulfilled = {@SchemaProperty(field = "from_time_received", value = "false")},
+                thenExpect = {@SchemaProperty(field = "match")}
+        )
+})
 @JsonPropertyOrder
-@JsonClassDescription("The `date` processor adds a default timestamp to an event, parses timestamp fields, " +
+@JsonClassDescription("The <code>date</code> processor adds a default timestamp to an event, parses timestamp fields, " +
         "and converts timestamp information to the International Organization for Standardization (ISO) 8601 format. " +
         "This timestamp information can be used as an event timestamp.")
 public class DateProcessorConfig {
+    static final String MATCH_KEY = "match";
+    static final String FROM_TIME_RECEIVED_KEY = "from_time_received";
     static final Boolean DEFAULT_FROM_TIME_RECEIVED = false;
     static final Boolean DEFAULT_TO_ORIGINATION_METADATA = false;
     static final String DEFAULT_DESTINATION = "@timestamp";
@@ -34,13 +52,21 @@ public class DateProcessorConfig {
         @JsonPropertyDescription("Represents the event key against which to match patterns. " +
                 "Required if <code>match</code> is configured.")
         private String key;
+
         @JsonProperty("patterns")
         @JsonPropertyDescription("A list of possible patterns that the timestamp value of the key can have. The patterns " +
                 "are based on a sequence of letters and symbols. The <code>patterns</code> support all the patterns listed in the " +
                 "Java DateTimeFormatter (https://docs.oracle.com/javase/8/docs/api/java/time/format/DateTimeFormatter.html) reference. " +
+                "To match ISO 8601 formatted strings, use, <code>yyyy-MM-dd'T'HH:mm:ss.SSSXXX</code>. " +
+                "To match Apache Common Log Format, use <code>dd/MMM/yyyy:HH:mm:ss Z</code>. " +
                 "The timestamp value also supports <code>epoch_second</code>, <code>epoch_milli</code>, and <code>epoch_nano</code> values, " +
                 "which represent the timestamp as the number of seconds, milliseconds, and nanoseconds since the epoch. " +
                 "Epoch values always use the UTC time zone.")
+        @ExampleValues({
+                @Example(value = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX", description = "Matches ISO-8601 formatted strings."),
+                @Example(value = "dd/MMM/yyyy:HH:mm:ss Z", description = "Matches Apache Common Log Format."),
+                @Example(value = "epoch_second", description = "Matches against strings that represent seconds since Unix epoch time.")
+        })
         private List<String> patterns;
 
         public DateMatch() {
@@ -101,16 +127,19 @@ public class DateProcessorConfig {
     @JsonPropertyDescription("When <code>true</code>, the timestamp from the event metadata, " +
             "which is the time at which the source receives the event, is added to the event data. " +
             "This option cannot be defined at the same time as <code>match</code>. Default is <code>false</code>.")
+    @AlsoRequired(values = {
+            @AlsoRequired.Required(name = MATCH_KEY, allowedValues = {"null"})
+    })
     private Boolean fromTimeReceived = DEFAULT_FROM_TIME_RECEIVED;
-
-    @JsonProperty("to_origination_metadata")
-    @JsonPropertyDescription("When <code>true</code>, the matched time is also added to the event's metadata as an instance of " +
-            "<code>Instant</code>. Default is <code>false</code>.")
-    private Boolean toOriginationMetadata = DEFAULT_TO_ORIGINATION_METADATA;
 
     @JsonProperty("match")
     @JsonPropertyDescription("The date match configuration. " +
-            "This option cannot be defined at the same time as <code>from_time_received</code>. There is no default value.")
+            "This option cannot be defined at the same time as <code>from_time_received</code>. " +
+            "The date processor will use the first pattern that matches each event's timestamp field. " +
+            "You must provide at least one pattern unless you have <code>from_time_received</code>.")
+    @AlsoRequired(values = {
+            @AlsoRequired.Required(name = FROM_TIME_RECEIVED_KEY, allowedValues = {"null", "false"})
+    })
     private List<DateMatch> match;
 
     @JsonProperty("destination")
@@ -118,37 +147,60 @@ public class DateProcessorConfig {
             "Can be used with both <code>match</code> and <code>from_time_received</code>. Default is <code>@timestamp</code>.")
     private String destination = DEFAULT_DESTINATION;
 
-    @JsonProperty("output_format")
-    @JsonPropertyDescription("Determines the format of the timestamp added to an event. " +
-            "Default is <code>yyyy-MM-dd'T'HH:mm:ss.SSSXXX</code>.")
+    @JsonProperty(value = "output_format", defaultValue = DEFAULT_OUTPUT_FORMAT)
+    @JsonPropertyDescription("Determines the format of the timestamp added to an event.")
+    @ExampleValues({
+            @Example(value = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX", description = "Outputs ISO-8601 formatted strings."),
+            @Example(value = "dd/MMM/yyyy:HH:mm:ss Z", description = "Outputs in Apache Common Log Format.")
+    })
     private String outputFormat = DEFAULT_OUTPUT_FORMAT;
+
+    @JsonProperty("to_origination_metadata")
+    @JsonPropertyDescription("When <code>true</code>, the matched time is also added to the event's metadata as an instance of " +
+            "<code>Instant</code>. Default is <code>false</code>.")
+    private Boolean toOriginationMetadata = DEFAULT_TO_ORIGINATION_METADATA;
 
     @JsonProperty("source_timezone")
     @JsonPropertyDescription("The time zone used to parse dates, including when the zone or offset cannot be extracted " +
             "from the value. If the zone or offset are part of the value, then the time zone is ignored. " +
             "A list of all the available time zones is contained in the TZ database name column of " +
-            "(https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List).")
+            "<a href=\"https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List\">this table</a>.")
+    @ExampleValues({
+            @Example(value = "UTC", description = "Coordinated Universal Time (UTC)."),
+            @Example(value = "US/Pacific", description = "United States Pacific time zone.")
+    })
     private String sourceTimezone = DEFAULT_SOURCE_TIMEZONE;
 
     @JsonProperty("destination_timezone")
     @JsonPropertyDescription("The time zone used for storing the timestamp in the <code>destination</code> field. " +
             "A list of all the available time zones is contained in the TZ database name column of " +
-            "(https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List).")
+            "<a href=\"https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List\">this table</a>.")
+    @ExampleValues({
+            @Example(value = "UTC", description = "Coordinated Universal Time (UTC)."),
+            @Example(value = "US/Pacific", description = "United States Pacific time zone.")
+    })
     private String destinationTimezone = DEFAULT_DESTINATION_TIMEZONE;
 
     @JsonProperty("locale")
     @JsonPropertyDescription("The location used for parsing dates. Commonly used for parsing month names (<code>MMM</code>). " +
             "The value can contain language, country, or variant fields in IETF BCP 47, such as <code>en-US</code>, " +
             "or a string representation of the " +
-            "locale (https://docs.oracle.com/javase/8/docs/api/java/util/Locale.html) object, such as <code>en_US</code>. " +
-            "A full list of locale fields, including language, country, and variant, can be found in " +
-            "(https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry). " +
+            "<a href=\"https://docs.oracle.com/javase/8/docs/api/java/util/Locale.html\">locale</a> object, such as <code>en_US</code>. " +
+            "A full list of locale fields, including language, country, and variant, can be found " +
+            "<a href=\"https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry\">here</a>." +
             "Default is <code>Locale.ROOT</code>.")
+    @ExampleValues({
+            @Example("en-US"),
+            @Example("fr-FR")
+    })
     private String locale;
 
     @JsonProperty("date_when")
     @JsonPropertyDescription("Specifies under what condition the <code>date</code> processor should perform matching. " +
             "Default is no condition.")
+    @ExampleValues({
+        @Example(value = "/some_key == null", description = "Only runs the date processor on the Event if some_key is null or doesn't exist.")
+    })
     private String dateWhen;
 
     @JsonIgnore

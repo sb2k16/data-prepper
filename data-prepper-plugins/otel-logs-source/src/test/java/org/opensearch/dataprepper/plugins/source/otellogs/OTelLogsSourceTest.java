@@ -10,6 +10,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.util.JsonFormat;
 import com.linecorp.armeria.client.ClientFactory;
 import com.linecorp.armeria.client.Clients;
+import com.linecorp.armeria.client.UnprocessedRequestException;
 import com.linecorp.armeria.client.WebClient;
 import com.linecorp.armeria.common.AggregatedHttpResponse;
 import com.linecorp.armeria.common.HttpData;
@@ -19,7 +20,6 @@ import com.linecorp.armeria.common.HttpStatus;
 import com.linecorp.armeria.common.MediaType;
 import com.linecorp.armeria.common.RequestHeaders;
 import com.linecorp.armeria.common.SessionProtocol;
-import com.linecorp.armeria.common.grpc.GrpcStatusFunction;
 import com.linecorp.armeria.server.Server;
 import com.linecorp.armeria.server.ServerBuilder;
 import com.linecorp.armeria.server.grpc.GrpcService;
@@ -55,6 +55,7 @@ import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.opensearch.dataprepper.GrpcRequestExceptionHandler;
 import org.opensearch.dataprepper.armeria.authentication.GrpcAuthenticationProvider;
 import org.opensearch.dataprepper.armeria.authentication.HttpBasicAuthenticationConfig;
 import org.opensearch.dataprepper.metrics.MetricNames;
@@ -91,6 +92,7 @@ import java.util.Map;
 import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -105,6 +107,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
@@ -265,6 +268,41 @@ class OTelLogsSourceTest {
                 .aggregate()
                 .whenComplete((response, throwable) -> assertSecureResponseWithStatusCode(response, HttpStatus.UNSUPPORTED_MEDIA_TYPE, throwable))
                 .join();
+    }
+
+    @Test
+    void testHttpRequestWhenSSLRequiredNoResponse() throws InvalidProtocolBufferException {
+        final Map<String, Object> settingsMap = new HashMap<>();
+        settingsMap.put("request_timeout", 5);
+        settingsMap.put(SSL, true);
+        settingsMap.put("useAcmCertForSSL", false);
+        settingsMap.put("sslKeyCertChainFile", "data/certificate/test_cert.crt");
+        settingsMap.put("sslKeyFile", "data/certificate/test_decrypted_key.key");
+        pluginSetting = new PluginSetting("otel_logs", settingsMap);
+        pluginSetting.setPipelineName("pipeline");
+
+        oTelLogsSourceConfig = OBJECT_MAPPER.convertValue(pluginSetting.getSettings(), OTelLogsSourceConfig.class);
+        SOURCE = new OTelLogsSource(oTelLogsSourceConfig, pluginMetrics, pluginFactory, pipelineDescription);
+
+        SOURCE.start(buffer);
+
+        CompletableFuture<AggregatedHttpResponse> future = WebClient.builder()
+                .factory(ClientFactory.insecure())
+                .build()
+                .execute(RequestHeaders.builder()
+                                .scheme(SessionProtocol.HTTP)
+                                .authority("127.0.0.1:2021")
+                                .method(HttpMethod.POST)
+                                .path("/opentelemetry.proto.collector.logs.v1.LogsService/Export")
+                                .contentType(MediaType.JSON_UTF_8)
+                                .build(),
+                        HttpData.copyOf(JsonFormat.printer().print(LOGS_REQUEST).getBytes()))
+                .aggregate();
+
+        ExecutionException exception = assertThrows(ExecutionException.class,
+                () -> future.get(2, TimeUnit.SECONDS)
+        );
+        assertInstanceOf(UnprocessedRequestException.class, exception.getCause());
     }
 
     @Test
@@ -521,7 +559,8 @@ class OTelLogsSourceTest {
             grpcServerMock.when(GrpcService::builder).thenReturn(grpcServiceBuilder);
             when(grpcServiceBuilder.addService(any(ServerServiceDefinition.class))).thenReturn(grpcServiceBuilder);
             when(grpcServiceBuilder.useClientTimeoutHeader(anyBoolean())).thenReturn(grpcServiceBuilder);
-            when(grpcServiceBuilder.exceptionMapping(any(GrpcStatusFunction.class))).thenReturn(grpcServiceBuilder);
+            when(grpcServiceBuilder.exceptionHandler(any(
+                    GrpcRequestExceptionHandler.class))).thenReturn(grpcServiceBuilder);
 
             when(server.stop()).thenReturn(completableFuture);
             final Path certFilePath = Path.of("data/certificate/test_cert.crt");
@@ -563,7 +602,8 @@ class OTelLogsSourceTest {
             grpcServerMock.when(GrpcService::builder).thenReturn(grpcServiceBuilder);
             when(grpcServiceBuilder.addService(any(ServerServiceDefinition.class))).thenReturn(grpcServiceBuilder);
             when(grpcServiceBuilder.useClientTimeoutHeader(anyBoolean())).thenReturn(grpcServiceBuilder);
-            when(grpcServiceBuilder.exceptionMapping(any(GrpcStatusFunction.class))).thenReturn(grpcServiceBuilder);
+            when(grpcServiceBuilder.exceptionHandler(any(
+                    GrpcRequestExceptionHandler.class))).thenReturn(grpcServiceBuilder);
 
             when(server.stop()).thenReturn(completableFuture);
             final Path certFilePath = Path.of("data/certificate/test_cert.crt");
@@ -766,6 +806,40 @@ class OTelLogsSourceTest {
         final Collection<Record<Object>> actualBufferWrites = bufferWriteArgumentCaptor.getValue();
         assertThat(actualBufferWrites, notNullValue());
         assertThat(actualBufferWrites, hasSize(1));
+    }
+
+    @Test
+    void gRPC_with_auth_request_with_different_basic_auth_credentials_does_not_write_to_buffer_with_401_response() throws Exception {
+        when(httpBasicAuthenticationConfig.getUsername()).thenReturn(USERNAME);
+        when(httpBasicAuthenticationConfig.getPassword()).thenReturn(PASSWORD);
+        final GrpcAuthenticationProvider grpcAuthenticationProvider = new GrpcBasicAuthenticationProvider(httpBasicAuthenticationConfig);
+
+        when(pluginFactory.loadPlugin(eq(GrpcAuthenticationProvider.class), any(PluginSetting.class)))
+                .thenReturn(grpcAuthenticationProvider);
+        when(oTelLogsSourceConfig.enableUnframedRequests()).thenReturn(true);
+        when(oTelLogsSourceConfig.getAuthentication()).thenReturn(new PluginModel("http_basic",
+                Map.of(
+                        "username", USERNAME,
+                        "password", PASSWORD
+                )));
+        configureObjectUnderTest();
+        SOURCE.start(buffer);
+
+        final String wrongCredentials = Base64.getEncoder()
+                .encodeToString(String.format("%s:%s", "wrong Username", "wrong Password").getBytes(StandardCharsets.UTF_8));
+
+        final LogsServiceGrpc.LogsServiceBlockingStub client = Clients.builder(GRPC_ENDPOINT)
+                .addHeader("Authorization", "Basic " + wrongCredentials)
+                .build(LogsServiceGrpc.LogsServiceBlockingStub.class);
+
+        StatusRuntimeException exception = assertThrows(
+                StatusRuntimeException.class,
+                () -> client.export(createExportLogsRequest())
+        );
+
+        assertEquals(Status.Code.UNAUTHENTICATED, exception.getStatus().getCode());
+
+        verify(buffer, never()).writeAll(any(), anyInt());
     }
 
     @Test

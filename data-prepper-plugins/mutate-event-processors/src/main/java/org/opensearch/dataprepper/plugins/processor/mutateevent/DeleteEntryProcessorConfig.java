@@ -11,6 +11,8 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import org.opensearch.dataprepper.model.annotations.ExampleValues;
+import org.opensearch.dataprepper.model.annotations.ExampleValues.Example;
 import org.opensearch.dataprepper.model.event.EventKey;
 import org.opensearch.dataprepper.model.event.EventKeyConfiguration;
 import org.opensearch.dataprepper.model.event.EventKeyFactory;
@@ -18,20 +20,23 @@ import org.opensearch.dataprepper.model.event.EventKeyFactory;
 import java.util.List;
 
 @JsonPropertyOrder
-@JsonClassDescription("The `delete_entries` processor deletes entries, such as key-value pairs, from an event. " +
-        "You can define the keys you want to delete in the `with-keys` field following `delete_entries` in the YAML " +
-        "configuration file. Those keys and their values are deleted.")
+@JsonClassDescription("The <code>delete_entries</code> processor deletes fields from events. " +
+        "You can define the keys you want to delete in the <code>with_keys</code> configuration. " +
+        "Those keys and their values are deleted from events.")
 public class DeleteEntryProcessorConfig {
     @NotEmpty
     @NotNull
     @JsonProperty("with_keys")
     @EventKeyConfiguration(EventKeyFactory.EventAction.DELETE)
-    @JsonPropertyDescription("An array of keys for the entries to be deleted.")
+    @JsonPropertyDescription("A list of keys to be deleted.")
     private List<@NotNull @NotEmpty EventKey> withKeys;
 
     @JsonProperty("delete_when")
     @JsonPropertyDescription("Specifies under what condition the <code>delete_entries</code> processor should perform deletion. " +
-            "Default is no condition.")
+            "By default, keys are always deleted. Example: <code>/mykey == \"---\"</code>")
+    @ExampleValues({
+            @Example(value = "/some_key == null", description = "Only runs the delete_entries processor on the Event if the key some_key is null or does not exist.")
+    })
     private String deleteWhen;
 
     public List<EventKey> getWithKeys() {

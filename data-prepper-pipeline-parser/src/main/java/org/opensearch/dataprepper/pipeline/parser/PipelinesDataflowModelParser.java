@@ -55,7 +55,7 @@ public class PipelinesDataflowModelParser {
                 .collect(Collectors.toList());
     }
 
-    private PipelinesDataFlowModel parseStreamToPipelineDataFlowModel(final InputStream configurationInputStream) {
+    public PipelinesDataFlowModel parseStreamToPipelineDataFlowModel(final InputStream configurationInputStream) {
         try (final InputStream pipelineConfigurationInputStream = configurationInputStream) {
             final PipelinesDataFlowModel pipelinesDataFlowModel = OBJECT_MAPPER.readValue(pipelineConfigurationInputStream,
                     PipelinesDataFlowModel.class);

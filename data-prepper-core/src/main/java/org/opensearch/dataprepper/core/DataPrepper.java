@@ -5,6 +5,7 @@
 
 package org.opensearch.dataprepper.core;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.util.StringUtils;
 import org.opensearch.dataprepper.DataPrepperShutdownListener;
 import org.opensearch.dataprepper.DataPrepperShutdownOptions;
@@ -14,6 +15,7 @@ import org.opensearch.dataprepper.core.pipeline.Pipeline;
 import org.opensearch.dataprepper.core.pipeline.PipelineObserver;
 import org.opensearch.dataprepper.core.pipeline.PipelinesProvider;
 import org.opensearch.dataprepper.core.pipeline.server.DataPrepperServer;
+import org.opensearch.dataprepper.model.configuration.DataPrepperVersion;
 import org.opensearch.dataprepper.model.configuration.PipelinesDataFlowModel;
 import org.opensearch.dataprepper.model.plugin.PluginFactory;
 import org.slf4j.Logger;
@@ -22,9 +24,12 @@ import org.springframework.context.annotation.Lazy;
 
 import javax.inject.Inject;
 import javax.inject.Named;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 
 /**
@@ -39,13 +44,16 @@ public class DataPrepper implements PipelinesProvider {
     private static final String DATAPREPPER_SERVICE_NAME = "DATAPREPPER_SERVICE_NAME";
     private static final String DEFAULT_SERVICE_NAME = "dataprepper";
     private static final int MAX_RETRIES = 100;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final PluginFactory pluginFactory;
     private final PeerForwarderServer peerForwarderServer;
     private final PipelinesObserver pipelinesObserver;
-    private final Map<String, Pipeline> transformationPipelines;
+    private Map<String, Pipeline> transformationPipelines;
     private final Predicate<Map<String, Pipeline>> shouldShutdownOnPipelineFailurePredicate;
-    private final PipelinesDataFlowModel pipelinesDataFlowModel;
+    private PipelinesDataFlowModel pipelinesDataFlowModel;
+    private AtomicBoolean validConfigPresent;
+    private PipelineTransformer pipelineTransformer;
 
     // TODO: Remove DataPrepperServer dependency on DataPrepper
     @Inject
@@ -70,14 +78,23 @@ public class DataPrepper implements PipelinesProvider {
             final Predicate<Map<String, Pipeline>> shouldShutdownOnPipelineFailurePredicate) {
         this.pluginFactory = pluginFactory;
 
-        transformationPipelines = pipelineTransformer.transformConfiguration();
-        pipelinesDataFlowModel = pipelineTransformer.getPipelinesDataFlowModel();
+        validConfigPresent = new AtomicBoolean(false);
+        this.pipelineTransformer =  pipelineTransformer;
         this.shouldShutdownOnPipelineFailurePredicate = shouldShutdownOnPipelineFailurePredicate;
-        if (transformationPipelines.isEmpty()) {
-            throw new RuntimeException("No valid pipeline is available for execution, exiting");
-        }
         this.peerForwarderServer = peerForwarderServer;
         pipelinesObserver = new PipelinesObserver();
+    }
+
+    public void setNewConfig(InputStream configStream) {
+        try (final InputStream pipelineConfigurationInputStream = configStream) {
+            final PipelinesDataFlowModel pipelinesDataFlowModel =
+                    OBJECT_MAPPER.readValue(pipelineConfigurationInputStream, PipelinesDataFlowModel.class);
+            final DataPrepperVersion version = pipelinesDataFlowModel.getDataPrepperVersion();
+            pipelineTransformer.setDataFlowModel(pipelinesDataFlowModel);
+            validConfigPresent.set(true);
+        } catch (IOException e) {
+            LOG.error("--- ERROR", e);
+        }
     }
 
     /**
@@ -86,6 +103,17 @@ public class DataPrepper implements PipelinesProvider {
      * @return true if execute successfully initiates the Data Prepper
      */
     public boolean execute() {
+
+        dataPrepperServer.start();
+        while (!validConfigPresent.get()) {
+            try {
+                Thread.sleep(1000);
+            } catch (Exception ex) {
+                LOG.error("Thread interruped", ex);
+            }
+        }
+        transformationPipelines = pipelineTransformer.transformConfiguration();
+        pipelinesDataFlowModel = pipelineTransformer.getPipelinesDataFlowModel();
         peerForwarderServer.start();
         transformationPipelines.forEach((name, pipeline) -> {
             pipeline.addShutdownObserver(pipelinesObserver);
@@ -93,7 +121,6 @@ public class DataPrepper implements PipelinesProvider {
         transformationPipelines.forEach((name, pipeline) -> {
             pipeline.execute();
         });
-        dataPrepperServer.start();
         return true;
     }
 

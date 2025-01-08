@@ -59,7 +59,7 @@ public class PipelineTransformer {
             "See https://opensearch.org/docs/latest/data-prepper/pipelines/expression-syntax/ for valid expression syntax.";
     private static final String PIPELINE_TYPE = "pipeline";
     private static final String ATTRIBUTE_NAME = "name";
-    private final PipelinesDataFlowModel pipelinesDataFlowModel;
+    private PipelinesDataFlowModel pipelinesDataFlowModel;
     private final RouterFactory routerFactory;
     private final DataPrepperConfiguration dataPrepperConfiguration;
     private final CircuitBreakerManager circuitBreakerManager;
@@ -120,6 +120,10 @@ public class PipelineTransformer {
             }
         }
         return pipelineMap;
+    }
+
+    public void setDataFlowModel(final PipelinesDataFlowModel newPipelinesDataFlowModel) {
+        pipelinesDataFlowModel = newPipelinesDataFlowModel;
     }
 
     private void buildPipelineFromConfiguration(

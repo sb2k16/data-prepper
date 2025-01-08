@@ -12,6 +12,7 @@ import org.opensearch.dataprepper.core.pipeline.server.DataPrepperCoreAuthentica
 import org.opensearch.dataprepper.core.pipeline.server.GetPipelinesHandler;
 import org.opensearch.dataprepper.core.pipeline.server.ListPipelinesHandler;
 import org.opensearch.dataprepper.core.pipeline.server.ShutdownHandler;
+import org.opensearch.dataprepper.core.pipeline.server.UpdatePipelineConfigHandler;
 import org.opensearch.dataprepper.model.configuration.PluginModel;
 import org.opensearch.dataprepper.model.configuration.PluginSetting;
 import org.opensearch.dataprepper.model.plugin.PluginFactory;
@@ -48,6 +49,11 @@ public class DataPrepperServerConfiguration {
                     DataPrepperCoreAuthenticationProvider.UNAUTHENTICATED_PLUGIN_NAME,
                     Collections.emptyMap());
         }
+    }
+
+    @Bean
+    public UpdatePipelineConfigHandler updateConfigHandler(final DataPrepper dataPrepper) {
+        return new UpdatePipelineConfigHandler(dataPrepper);
     }
 
     @Bean

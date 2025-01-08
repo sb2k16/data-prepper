@@ -52,6 +52,9 @@ public class DataPrepperServerTest {
     private GetPipelinesHandler getPipelinesHandler;
 
     @Mock
+    private UpdatePipelineConfigHandler updatePipelineConfigHandler;
+
+    @Mock
     private PrometheusMeterRegistry prometheusMeterRegistry;
 
     @Mock
@@ -65,8 +68,8 @@ public class DataPrepperServerTest {
 
     @AfterEach
     public void tearDown() {
-        verifyNoMoreInteractions(server, httpServerProvider, listPipelinesHandler, shutdownHandler,
-                prometheusMeterRegistry, authenticator, context, socketAddress);
+        verifyNoMoreInteractions(server, httpServerProvider, listPipelinesHandler, updatePipelineConfigHandler,
+                shutdownHandler, prometheusMeterRegistry, authenticator, context, socketAddress);
     }
 
     @Test
@@ -161,7 +164,9 @@ public class DataPrepperServerTest {
         verify(socketAddress).getPort();
     }
 
-    private DataPrepperServer createObjectUnderTest(final PrometheusMeterRegistry prometheusMeterRegistry, final Authenticator authenticator) {
-        return new DataPrepperServer(httpServerProvider, listPipelinesHandler, shutdownHandler, getPipelinesHandler, prometheusMeterRegistry, authenticator);
+    private DataPrepperServer createObjectUnderTest(final PrometheusMeterRegistry prometheusMeterRegistry,
+                                                    final Authenticator authenticator) {
+        return new DataPrepperServer(httpServerProvider, listPipelinesHandler, updatePipelineConfigHandler,
+                shutdownHandler, getPipelinesHandler, prometheusMeterRegistry, authenticator);
     }
 }

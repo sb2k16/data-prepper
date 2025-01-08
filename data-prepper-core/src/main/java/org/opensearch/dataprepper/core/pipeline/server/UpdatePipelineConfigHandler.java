@@ -15,8 +15,6 @@ import org.slf4j.LoggerFactory;
 import javax.ws.rs.HttpMethod;
 import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.util.ArrayList;
-import java.util.List;
 import java.io.InputStream;
 
 /**

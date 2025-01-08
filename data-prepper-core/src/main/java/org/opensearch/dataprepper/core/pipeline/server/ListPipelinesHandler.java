@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import javax.ws.rs.HttpMethod;
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -50,12 +51,13 @@ public class ListPipelinesHandler implements HttpHandler {
         }
 
         try {
-            final List<PipelineListing> pipelines = pipelinesProvider.getTransformationPipelines()
-                    .keySet()
-                    .stream()
-                    .map(PipelineListing::new)
-                    .collect(Collectors.toList());
-            LOG.debug("List pipelines request responding with {} pipelines.", pipelines.size());
+            final List<PipelineListing> pipelines = new ArrayList<>();
+//            final List<PipelineListing> pipelines = pipelinesProvider.getTransformationPipelines()
+//                    .keySet()
+//                    .stream()
+//                    .map(PipelineListing::new)
+//                    .collect(Collectors.toList());
+            LOG.debug("List pipelines request responding with {} pipelines.", 0);
             final byte[] response = OBJECT_MAPPER.writeValueAsString(Collections.singletonMap("pipelines", pipelines)).getBytes();
             exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=UTF-8");
             exchange.sendResponseHeaders(HttpURLConnection.HTTP_OK, response.length);

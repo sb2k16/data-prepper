@@ -11,6 +11,7 @@
 package org.opensearch.dataprepper.plugins.kinesis.source;
 
 import com.linecorp.armeria.client.retry.Backoff;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -25,18 +26,22 @@ import software.amazon.awssdk.services.kinesis.model.StreamDescriptionSummary;
 import software.amazon.kinesis.common.StreamIdentifier;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 public class KinesisClientApiHandlerTest {
-    private static final String awsAccountId = "1234";
+    private static final String awsAccountId = RandomStringUtils.randomNumeric(12);
     private static final String streamArnFormat = "arn:aws:kinesis:us-east-1:%s:stream/%s";
     private static final Instant streamCreationTime = Instant.now();
     private static final int NUM_OF_RETRIES = 3;
@@ -76,15 +81,8 @@ public class KinesisClientApiHandlerTest {
         DescribeStreamSummaryRequest describeStreamSummaryRequest = DescribeStreamSummaryRequest.builder()
                 .streamName(streamName)
                 .build();
-        StreamDescriptionSummary streamDescriptionSummary = StreamDescriptionSummary.builder()
-                .streamARN(String.format(streamArnFormat, awsAccountId, streamName))
-                .streamCreationTimestamp(streamCreationTime)
-                .streamName(streamName)
-                .build();
 
-        DescribeStreamSummaryResponse describeStreamSummaryResponse = DescribeStreamSummaryResponse.builder()
-                .streamDescriptionSummary(streamDescriptionSummary)
-                .build();
+        DescribeStreamSummaryResponse describeStreamSummaryResponse = createMockDescribeStreamSummaryResponse();
         final CompletableFuture<DescribeStreamSummaryResponse> successFuture = CompletableFuture.completedFuture(describeStreamSummaryResponse);
 
         given(kinesisClient.describeStreamSummary(describeStreamSummaryRequest)).willReturn(successFuture);
@@ -100,15 +98,8 @@ public class KinesisClientApiHandlerTest {
         DescribeStreamSummaryRequest describeStreamSummaryRequest = DescribeStreamSummaryRequest.builder()
                 .streamName(streamName)
                 .build();
-        StreamDescriptionSummary streamDescriptionSummary = StreamDescriptionSummary.builder()
-                .streamARN(String.format(streamArnFormat, awsAccountId, streamName))
-                .streamCreationTimestamp(streamCreationTime)
-                .streamName(streamName)
-                .build();
 
-        DescribeStreamSummaryResponse describeStreamSummaryResponse = DescribeStreamSummaryResponse.builder()
-                .streamDescriptionSummary(streamDescriptionSummary)
-                .build();
+        DescribeStreamSummaryResponse describeStreamSummaryResponse = createMockDescribeStreamSummaryResponse();
         final CompletableFuture<DescribeStreamSummaryResponse> successFuture = CompletableFuture.completedFuture(describeStreamSummaryResponse);
 
         final CompletableFuture<DescribeStreamSummaryResponse> failedFuture1 = new CompletableFuture<>();
@@ -132,15 +123,8 @@ public class KinesisClientApiHandlerTest {
         DescribeStreamSummaryRequest describeStreamSummaryRequest = DescribeStreamSummaryRequest.builder()
                 .streamName(streamName)
                 .build();
-        StreamDescriptionSummary streamDescriptionSummary = StreamDescriptionSummary.builder()
-                .streamARN(String.format(streamArnFormat, awsAccountId, streamName))
-                .streamCreationTimestamp(streamCreationTime)
-                .streamName(streamName)
-                .build();
 
-        DescribeStreamSummaryResponse describeStreamSummaryResponse = DescribeStreamSummaryResponse.builder()
-                .streamDescriptionSummary(streamDescriptionSummary)
-                .build();
+        DescribeStreamSummaryResponse describeStreamSummaryResponse = createMockDescribeStreamSummaryResponse();
         final CompletableFuture<DescribeStreamSummaryResponse> successFuture = CompletableFuture.completedFuture(describeStreamSummaryResponse);
 
         final CompletableFuture<DescribeStreamSummaryResponse> failedFuture1 = new CompletableFuture<>();
@@ -164,15 +148,8 @@ public class KinesisClientApiHandlerTest {
         DescribeStreamSummaryRequest describeStreamSummaryRequest = DescribeStreamSummaryRequest.builder()
                 .streamName(streamName)
                 .build();
-        StreamDescriptionSummary streamDescriptionSummary = StreamDescriptionSummary.builder()
-                .streamARN(String.format(streamArnFormat, awsAccountId, streamName))
-                .streamCreationTimestamp(streamCreationTime)
-                .streamName(streamName)
-                .build();
 
-        DescribeStreamSummaryResponse describeStreamSummaryResponse = DescribeStreamSummaryResponse.builder()
-                .streamDescriptionSummary(streamDescriptionSummary)
-                .build();
+        DescribeStreamSummaryResponse describeStreamSummaryResponse = createMockDescribeStreamSummaryResponse();
         final CompletableFuture<DescribeStreamSummaryResponse> successFuture = CompletableFuture.completedFuture(describeStreamSummaryResponse);
 
         final CompletableFuture<DescribeStreamSummaryResponse> failedFuture1 = new CompletableFuture<>();
@@ -195,15 +172,6 @@ public class KinesisClientApiHandlerTest {
     public void testGetStreamIdentifierFailureWithMultipleRetries() {
         DescribeStreamSummaryRequest describeStreamSummaryRequest = DescribeStreamSummaryRequest.builder()
                 .streamName(streamName)
-                .build();
-        StreamDescriptionSummary streamDescriptionSummary = StreamDescriptionSummary.builder()
-                .streamARN(String.format(streamArnFormat, awsAccountId, streamName))
-                .streamCreationTimestamp(streamCreationTime)
-                .streamName(streamName)
-                .build();
-
-        DescribeStreamSummaryResponse describeStreamSummaryResponse = DescribeStreamSummaryResponse.builder()
-                .streamDescriptionSummary(streamDescriptionSummary)
                 .build();
 
         final CompletableFuture<DescribeStreamSummaryResponse> failedFuture1 = new CompletableFuture<>();
@@ -230,7 +198,114 @@ public class KinesisClientApiHandlerTest {
         assertThrows(IllegalArgumentException.class, () -> new KinesisClientApiHandler(kinesisClient, backoff, -1));
     }
 
+    @Test
+    public void testGetStreamIdentifierFromStreamArn() {
+        String streamArn = String.format(streamArnFormat, awsAccountId, streamName);
+        DescribeStreamSummaryRequest describeStreamSummaryRequest = DescribeStreamSummaryRequest.builder()
+                .streamName(streamName)
+                .streamARN(streamArn)
+                .build();
+
+        DescribeStreamSummaryResponse describeStreamSummaryResponse = createMockDescribeStreamSummaryResponse();
+        final CompletableFuture<DescribeStreamSummaryResponse> successFuture = CompletableFuture.completedFuture(describeStreamSummaryResponse);
+
+        given(kinesisClient.describeStreamSummary(describeStreamSummaryRequest)).willReturn(successFuture);
+
+        KinesisClientApiHandler kinesisClientAPIHandler = createObjectUnderTest();
+
+        StreamIdentifier streamIdentifier = kinesisClientAPIHandler.getStreamIdentifierFromStreamArn(streamArn);
+        assertEquals(getStreamIdentifier(streamName), streamIdentifier);
+    }
+
+    @Test
+    public void testGetStreamIdentifierFromStreamArnWithInvalidArn() {
+        String invalidStreamArn = "invalid:arn:format";
+        KinesisClientApiHandler kinesisClientAPIHandler = createObjectUnderTest();
+        assertThrows(IllegalArgumentException.class, () -> kinesisClientAPIHandler.getStreamIdentifierFromStreamArn(invalidStreamArn));
+    }
+
+    @Test
+    public void testGetStreamIdentifierFromStreamArnWithRetriesExhausted() {
+        String streamArn = String.format(streamArnFormat, awsAccountId, streamName);
+        DescribeStreamSummaryRequest describeStreamSummaryRequest = DescribeStreamSummaryRequest.builder()
+                .streamName(streamName)
+                .streamARN(streamArn)
+                .build();
+        final CompletableFuture<DescribeStreamSummaryResponse> failedFuture = new CompletableFuture<>();
+        failedFuture.completeExceptionally(mock(Throwable.class));
+
+        given(kinesisClient.describeStreamSummary(describeStreamSummaryRequest))
+                .willReturn(failedFuture);
+
+        when(backoff.nextDelayMillis(anyInt())).thenReturn(-10L);
+
+        KinesisClientApiHandler kinesisClientAPIHandler = createObjectUnderTest();
+
+        assertThrows(KinesisRetriesExhaustedException.class, () -> kinesisClientAPIHandler.getStreamIdentifierFromStreamArn(streamArn));
+    }
+
+    @Test
+    void testGetStreamInfoFromStreamIdentifier_WithExistingIdentifier() {
+        DescribeStreamSummaryResponse response = createMockDescribeStreamSummaryResponse();
+        when(kinesisClient.describeStreamSummary(any(DescribeStreamSummaryRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(response));
+
+        KinesisClientApiHandler kinesisClientApiHandler = createObjectUnderTest();
+        kinesisClientApiHandler.getStreamIdentifier(streamName);
+        String streamIdentifierString = kinesisClientApiHandler.getStreamIdentifierString(awsAccountId, streamName, streamCreationTime.getEpochSecond());
+        Optional<String> result = kinesisClientApiHandler.getStreamInfoFromStreamIdentifier(streamIdentifierString);
+
+        assertTrue(result.isPresent());
+        assertEquals(streamName, result.get());
+    }
+
+    @Test
+    void testGetStreamInfoFromStreamIdentifier_WithNonExistingIdentifier() {
+        String nonExistingIdentifier = "non:existing:identifier";
+        Optional<String> result = createObjectUnderTest().getStreamInfoFromStreamIdentifier(nonExistingIdentifier);
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void testGetStreamInfoFromStreamIdentifier_AfterGetStreamIdentifierFromStreamArn() {
+        String streamArn = String.format(streamArnFormat, awsAccountId, streamName);
+        DescribeStreamSummaryRequest describeStreamSummaryRequest = DescribeStreamSummaryRequest.builder()
+                .streamName(streamName)
+                .streamARN(streamArn)
+                .build();
+        DescribeStreamSummaryResponse response = createMockDescribeStreamSummaryResponse();
+        when(kinesisClient.describeStreamSummary(describeStreamSummaryRequest))
+                .thenReturn(CompletableFuture.completedFuture(response));
+
+        KinesisClientApiHandler kinesisClientApiHandler = createObjectUnderTest();
+        StreamIdentifier streamIdentifier = kinesisClientApiHandler.getStreamIdentifierFromStreamArn(streamArn);
+        String streamIdentifierString = streamIdentifier.toString();
+
+        Optional<String> result = kinesisClientApiHandler.getStreamInfoFromStreamIdentifier(streamIdentifierString);
+
+        assertTrue(result.isPresent());
+        assertEquals(streamArn, result.get());
+    }
+
+    @Test
+    void testGetStreamInfoFromStreamIdentifier_WithNullIdentifier() {
+        KinesisClientApiHandler kinesisClientApiHandler = createObjectUnderTest();
+        Optional<String> result = kinesisClientApiHandler.getStreamInfoFromStreamIdentifier(null);
+        assertTrue(result.isEmpty());
+    }
+
     private StreamIdentifier getStreamIdentifier(final String streamName) {
         return StreamIdentifier.multiStreamInstance(String.join(":", awsAccountId, streamName, String.valueOf(streamCreationTime.getEpochSecond())));
+    }
+
+    private DescribeStreamSummaryResponse createMockDescribeStreamSummaryResponse() {
+        StreamDescriptionSummary summary = StreamDescriptionSummary.builder()
+                .streamARN(String.format(streamArnFormat, awsAccountId, streamName))
+                .streamCreationTimestamp(streamCreationTime)
+                .streamName(streamName)
+                .build();
+        return DescribeStreamSummaryResponse.builder()
+                .streamDescriptionSummary(summary)
+                .build();
     }
 }

@@ -36,7 +36,6 @@ import org.opensearch.dataprepper.plugins.kinesis.source.configuration.KinesisSo
 import org.opensearch.dataprepper.plugins.kinesis.source.configuration.KinesisStreamConfig;
 import org.opensearch.dataprepper.plugins.kinesis.source.converter.KinesisRecordConverter;
 import org.opensearch.dataprepper.plugins.kinesis.source.converter.MetadataKeyAttributes;
-import org.opensearch.dataprepper.plugins.kinesis.source.exceptions.KinesisStreamNotFoundException;
 import software.amazon.kinesis.common.StreamIdentifier;
 import software.amazon.kinesis.exceptions.InvalidStateException;
 import software.amazon.kinesis.exceptions.ShutdownException;
@@ -54,7 +53,6 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -62,11 +60,8 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
@@ -245,7 +240,7 @@ public class KinesisRecordProcessorTest {
         when(kinesisRecordConverter.convert(eq(decompressionEngine), eq(kinesisClientRecords), eq(streamId))).thenReturn(records);
 
         kinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         KinesisCheckpointerRecord kinesisCheckpointerRecord = mock(KinesisCheckpointerRecord.class);
         ExtendedSequenceNumber extendedSequenceNumber = mock(ExtendedSequenceNumber.class);
         when(extendedSequenceNumber.sequenceNumber()).thenReturn(sequence_number);
@@ -305,7 +300,7 @@ public class KinesisRecordProcessorTest {
         when(kinesisRecordConverter.convert(eq(decompressionEngine), eq(kinesisClientRecords), eq(streamId))).thenReturn(records);
 
         kinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         when(kinesisCheckpointerTracker.popLatestReadyToCheckpointRecord()).thenReturn(Optional.empty());
         kinesisRecordProcessor.initialize(initializationInput);
 
@@ -368,7 +363,7 @@ public class KinesisRecordProcessorTest {
         when(kinesisRecordConverter.convert(eq(decompressionEngine), eq(kinesisClientRecords), eq(streamId))).thenReturn(records);
 
         kinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         KinesisCheckpointerRecord kinesisCheckpointerRecord = mock(KinesisCheckpointerRecord.class);
         ExtendedSequenceNumber extendedSequenceNumber = mock(ExtendedSequenceNumber.class);
         when(extendedSequenceNumber.sequenceNumber()).thenReturn(sequence_number);
@@ -435,7 +430,7 @@ public class KinesisRecordProcessorTest {
         when(kinesisRecordConverter.convert(eq(decompressionEngine), eq(kinesisClientRecords), eq(streamId))).thenReturn(records);
 
         kinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         KinesisCheckpointerRecord kinesisCheckpointerRecord = mock(KinesisCheckpointerRecord.class);
         ExtendedSequenceNumber extendedSequenceNumber = mock(ExtendedSequenceNumber.class);
         when(extendedSequenceNumber.sequenceNumber()).thenReturn(sequence_number);
@@ -492,7 +487,7 @@ public class KinesisRecordProcessorTest {
         doThrow(exception).when(bufferAccumulator).add(any(Record.class));
 
         kinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         kinesisRecordProcessor.initialize(initializationInput);
 
         assertDoesNotThrow(() -> kinesisRecordProcessor.processRecords(processRecordsInput));
@@ -530,7 +525,7 @@ public class KinesisRecordProcessorTest {
         doThrow(exception).when(bufferAccumulator).flush();
 
         kinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         kinesisRecordProcessor.initialize(initializationInput);
 
         assertDoesNotThrow(() -> kinesisRecordProcessor.processRecords(processRecordsInput));
@@ -543,7 +538,7 @@ public class KinesisRecordProcessorTest {
     @Test
     void testShardEndedLatestCheckpoint() {
         KinesisRecordProcessor mockKinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         ShardEndedInput shardEndedInput = mock(ShardEndedInput.class);
         when(shardEndedInput.checkpointer()).thenReturn(checkpointer);
 
@@ -559,7 +554,7 @@ public class KinesisRecordProcessorTest {
         when(pluginMetrics.counterWithTags(KINESIS_CHECKPOINT_FAILURES, KINESIS_STREAM_TAG_KEY, streamIdentifier.streamName())).thenReturn(checkpointFailures);
 
         KinesisRecordProcessor mockKinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         ShardEndedInput shardEndedInput = mock(ShardEndedInput.class);
         when(shardEndedInput.checkpointer()).thenReturn(checkpointer);
         doThrow(exceptionType).when(checkpointer).checkpoint();
@@ -577,7 +572,7 @@ public class KinesisRecordProcessorTest {
         when(pluginMetrics.counterWithTags(KINESIS_CHECKPOINT_FAILURES, KINESIS_STREAM_TAG_KEY, streamIdentifier.streamName())).thenReturn(checkpointFailures);
 
         KinesisRecordProcessor mockKinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         ShutdownRequestedInput shutdownRequestedInput = mock(ShutdownRequestedInput.class);
         when(shutdownRequestedInput.checkpointer()).thenReturn(checkpointer);
 
@@ -594,7 +589,7 @@ public class KinesisRecordProcessorTest {
         when(pluginMetrics.counterWithTags(KINESIS_CHECKPOINT_FAILURES, KINESIS_STREAM_TAG_KEY, streamIdentifier.streamName())).thenReturn(checkpointFailures);
 
         KinesisRecordProcessor mockKinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         doThrow(exceptionType).when(checkpointer).checkpoint(eq(sequence_number), eq(sub_sequence_number));
 
         assertDoesNotThrow(() -> mockKinesisRecordProcessor.checkpoint(checkpointer, sequence_number, sub_sequence_number));
@@ -610,7 +605,7 @@ public class KinesisRecordProcessorTest {
         when(pluginMetrics.counterWithTags(KINESIS_CHECKPOINT_FAILURES, KINESIS_STREAM_TAG_KEY, streamIdentifier.streamName())).thenReturn(checkpointFailures);
 
         KinesisRecordProcessor mockKinesisRecordProcessor = new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier);
+                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier, kinesisStreamConfig);
         ShutdownRequestedInput shutdownRequestedInput = mock(ShutdownRequestedInput.class);
         when(shutdownRequestedInput.checkpointer()).thenReturn(checkpointer);
         doThrow(exceptionType).when(checkpointer).checkpoint();
@@ -620,47 +615,6 @@ public class KinesisRecordProcessorTest {
         verify(checkpointer).checkpoint();
         verify(shutdownRequestedInput, times(1)).checkpointer();
         verify(checkpointFailures, times(1)).increment();
-    }
-
-    @Test
-    void testGetStreamConfig_StreamFound() {
-        final String streamName = UUID.randomUUID().toString();
-        when(kinesisStreamConfig.getName()).thenReturn(streamName);
-        when(streamIdentifier.streamName()).thenReturn(streamName);
-        when(kinesisSourceConfig.getStreams()).thenReturn(Arrays.asList(kinesisStreamConfig));
-
-        assertDoesNotThrow(() -> new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier));
-    }
-
-    @Test
-    void testGetStreamConfig_StreamNotFound() {
-        // Arrange
-        when(streamIdentifier.streamName()).thenReturn(UUID.randomUUID().toString());
-        when(kinesisSourceConfig.getStreams()).thenReturn(Collections.emptyList());
-
-        Exception actualException  = assertThrows(KinesisStreamNotFoundException.class, () -> new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier));
-
-        assertThat(actualException.getMessage(), containsString(streamIdentifier.streamName()));
-    }
-
-    @Test
-    void testGetStreamConfig_MultipleStreams() {
-        List<KinesisStreamConfig> streamConfigs = new ArrayList<>();
-        final String streamName1 = UUID.randomUUID().toString();
-        when(streamIdentifier.streamName()).thenReturn(streamName1);
-        KinesisStreamConfig streamConfig1 = mock(KinesisStreamConfig.class);
-        when(streamConfig1.getName()).thenReturn(streamName1);
-        streamConfigs.add(streamConfig1);
-        KinesisStreamConfig streamConfig2 = mock(KinesisStreamConfig.class);
-        when(streamConfig2.getName()).thenReturn(UUID.randomUUID().toString());
-        streamConfigs.add(streamConfig2);
-
-        when(kinesisSourceConfig.getStreams()).thenReturn(streamConfigs);
-
-        assertDoesNotThrow(() -> new KinesisRecordProcessor(bufferAccumulator, kinesisSourceConfig,
-                acknowledgementSetManager, pluginMetrics, kinesisRecordConverter, kinesisCheckpointerTracker, streamIdentifier));
     }
 
     private List<KinesisClientRecord> createInputKinesisClientRecords() {

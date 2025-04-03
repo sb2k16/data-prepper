@@ -12,7 +12,6 @@ package org.opensearch.dataprepper.plugins.kinesis.source.configuration;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import org.opensearch.dataprepper.plugins.codec.CompressionOption;
 import software.amazon.kinesis.common.InitialPositionInStream;
@@ -20,15 +19,19 @@ import software.amazon.kinesis.common.InitialPositionInStream;
 import java.time.Duration;
 
 @Getter
+@ValidStreamIdentifier
 public class KinesisStreamConfig {
     // Checkpointing interval
     private static final Duration MINIMAL_CHECKPOINT_INTERVAL = Duration.ofMillis(2 * 60 * 1000); // 2 minute
     private static final boolean DEFAULT_ENABLE_CHECKPOINT = false;
 
     @JsonProperty("stream_name")
-    @NotNull
     @Valid
     private String name;
+
+    @JsonProperty("stream_arn")
+    @Valid
+    private String arn;
 
     @JsonProperty("initial_position")
     private InitialPositionInStreamConfig initialPosition = InitialPositionInStreamConfig.LATEST;

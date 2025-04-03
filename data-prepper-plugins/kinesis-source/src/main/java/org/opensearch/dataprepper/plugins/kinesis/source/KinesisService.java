@@ -173,13 +173,19 @@ public class KinesisService {
     }
 
     public Scheduler createScheduler(final Buffer<Record<Event>> buffer) {
+
+        final KinesisClientApiHandler kinesisClientApiHandler =
+                new KinesisClientApiHandler(kinesisClient,
+                        Backoff.exponential(INITIAL_DELAY, MAXIMUM_DELAY)
+                            .withJitter(JITTER_RATE)
+                            .withMaxAttempts(NUM_OF_RETRIES), NUM_OF_RETRIES);
+
         final ShardRecordProcessorFactory processorFactory = new KinesisShardRecordProcessorFactory(
-                buffer, kinesisSourceConfig, acknowledgementSetManager, pluginMetrics, codec);
+                buffer, kinesisSourceConfig, acknowledgementSetManager, pluginMetrics, codec, kinesisClientApiHandler);
 
         ConfigsBuilder configsBuilder =
                 new ConfigsBuilder(
-                        new KinesisMultiStreamTracker(kinesisSourceConfig, applicationName, new KinesisClientApiHandler(kinesisClient, Backoff.exponential(INITIAL_DELAY, MAXIMUM_DELAY).withJitter(JITTER_RATE)
-                                .withMaxAttempts(NUM_OF_RETRIES), NUM_OF_RETRIES)),
+                        new KinesisMultiStreamTracker(kinesisSourceConfig, applicationName, kinesisClientApiHandler),
                         applicationName, kinesisClient, dynamoDbClient, cloudWatchClient,
                         workerIdentifierGenerator.generate(), processorFactory
                 )

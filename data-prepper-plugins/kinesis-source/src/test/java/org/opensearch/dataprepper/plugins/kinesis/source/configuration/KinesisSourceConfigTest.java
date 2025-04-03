@@ -44,6 +44,7 @@ public class KinesisSourceConfigTest {
     private static final String PIPELINE_CONFIG_WITH_ACKS_ENABLED = "pipeline_with_acks_enabled.yaml";
     private static final String PIPELINE_CONFIG_WITH_POLLING_CONFIG_ENABLED = "pipeline_with_polling_config_enabled.yaml";
     private static final String PIPELINE_CONFIG_CHECKPOINT_ENABLED = "pipeline_with_checkpoint_enabled.yaml";
+    private static final String SIMPLE_PIPELINE_WITH_STREAM_ARN = "simple_pipeline_with_stream_arn.yaml";
     private static final Duration MINIMAL_CHECKPOINT_INTERVAL = Duration.ofMillis(2 * 60 * 1000); // 2 minute
 
     KinesisSourceConfig kinesisSourceConfig;
@@ -131,6 +132,40 @@ public class KinesisSourceConfigTest {
             assertEquals(kinesisStreamConfig.getCheckPointInterval(), MINIMAL_CHECKPOINT_INTERVAL);
         }
     }
+
+    @Test
+    @Tag(SIMPLE_PIPELINE_WITH_STREAM_ARN)
+    void testSourceConfigWithStreamArn() {
+
+        assertThat(kinesisSourceConfig, notNullValue());
+        assertEquals(KinesisSourceConfig.DEFAULT_NUMBER_OF_RECORDS_TO_ACCUMULATE, kinesisSourceConfig.getNumberOfRecordsToAccumulate());
+        assertEquals(KinesisSourceConfig.DEFAULT_TIME_OUT_IN_MILLIS, kinesisSourceConfig.getBufferTimeout());
+        assertEquals(KinesisSourceConfig.DEFAULT_MAX_INITIALIZATION_ATTEMPTS, kinesisSourceConfig.getMaxInitializationAttempts());
+        assertEquals(KinesisSourceConfig.DEFAULT_INITIALIZATION_BACKOFF_TIME, kinesisSourceConfig.getInitializationBackoffTime());
+        assertFalse(kinesisSourceConfig.isAcknowledgments());
+        assertEquals(KinesisSourceConfig.DEFAULT_SHARD_ACKNOWLEDGEMENT_TIMEOUT, kinesisSourceConfig.getShardAcknowledgmentTimeout());
+        assertThat(kinesisSourceConfig.getAwsAuthenticationConfig(), notNullValue());
+        assertEquals(kinesisSourceConfig.getAwsAuthenticationConfig().getAwsRegion(), Region.US_EAST_1);
+        assertEquals(kinesisSourceConfig.getAwsAuthenticationConfig().getAwsStsRoleArn(), "arn:aws:iam::123456789012:role/OSI-PipelineRole");
+        assertNull(kinesisSourceConfig.getAwsAuthenticationConfig().getAwsStsExternalId());
+        assertNull(kinesisSourceConfig.getAwsAuthenticationConfig().getAwsStsHeaderOverrides());
+        assertNotNull(kinesisSourceConfig.getCodec());
+        List<KinesisStreamConfig> streamConfigs = kinesisSourceConfig.getStreams();
+        assertEquals(kinesisSourceConfig.getConsumerStrategy(), ConsumerStrategy.POLLING);
+        assertNotNull(kinesisSourceConfig.getPollingConfig());
+        assertEquals(kinesisSourceConfig.getPollingConfig().getMaxPollingRecords(), 10);
+        assertEquals(kinesisSourceConfig.getPollingConfig().getIdleTimeBetweenReads(), Duration.ofSeconds(10));
+
+        assertEquals(streamConfigs.size(), 3);
+
+        for (KinesisStreamConfig kinesisStreamConfig: streamConfigs) {
+            assertNull(kinesisStreamConfig.getName());
+            assertTrue(kinesisStreamConfig.getArn().contains("arn:aws:kinesis::123456789012:stream/stream"));
+            assertEquals(kinesisStreamConfig.getInitialPosition(), InitialPositionInStream.LATEST);
+            assertEquals(kinesisStreamConfig.getCheckPointInterval(), MINIMAL_CHECKPOINT_INTERVAL);
+        }
+    }
+
 
     @Test
     @Tag(PIPELINE_CONFIG_CHECKPOINT_ENABLED)

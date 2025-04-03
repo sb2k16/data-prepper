@@ -21,6 +21,7 @@ import software.amazon.kinesis.processor.MultiStreamTracker;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class KinesisMultiStreamTracker implements MultiStreamTracker {
     private final KinesisSourceConfig sourceConfig;
@@ -44,7 +45,12 @@ public class KinesisMultiStreamTracker implements MultiStreamTracker {
     }
 
     private StreamConfig getStreamConfig(KinesisStreamConfig kinesisStreamConfig) {
-        StreamIdentifier sourceStreamIdentifier = kinesisClientAPIHandler.getStreamIdentifier(kinesisStreamConfig.getName());
+        StreamIdentifier sourceStreamIdentifier;
+        if (Objects.nonNull(kinesisStreamConfig.getArn())) {
+            sourceStreamIdentifier = kinesisClientAPIHandler.getStreamIdentifierFromStreamArn(kinesisStreamConfig.getArn());
+        } else {
+            sourceStreamIdentifier = kinesisClientAPIHandler.getStreamIdentifier(kinesisStreamConfig.getName());
+        }
         return new StreamConfig(sourceStreamIdentifier,
                 InitialPositionInStreamExtended.newInitialPosition(kinesisStreamConfig.getInitialPosition()));
     }

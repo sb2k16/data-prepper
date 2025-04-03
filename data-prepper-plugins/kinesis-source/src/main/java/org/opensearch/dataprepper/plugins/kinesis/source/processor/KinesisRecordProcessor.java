@@ -23,7 +23,6 @@ import org.opensearch.dataprepper.model.record.Record;
 import org.opensearch.dataprepper.plugins.kinesis.source.configuration.KinesisSourceConfig;
 import org.opensearch.dataprepper.plugins.kinesis.source.configuration.KinesisStreamConfig;
 import org.opensearch.dataprepper.plugins.kinesis.source.converter.KinesisRecordConverter;
-import org.opensearch.dataprepper.plugins.kinesis.source.exceptions.KinesisStreamNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.kinesis.common.StreamIdentifier;
@@ -90,11 +89,12 @@ public class KinesisRecordProcessor implements ShardRecordProcessor {
                                   final PluginMetrics pluginMetrics,
                                   final KinesisRecordConverter kinesisRecordConverter,
                                   final KinesisCheckpointerTracker kinesisCheckpointerTracker,
-                                  final StreamIdentifier streamIdentifier) {
+                                  final StreamIdentifier streamIdentifier,
+                                  final KinesisStreamConfig kinesisStreamConfig) {
         this.bufferTimeoutMillis = (int) kinesisSourceConfig.getBufferTimeout().toMillis();
         this.streamIdentifier = streamIdentifier;
         this.kinesisSourceConfig = kinesisSourceConfig;
-        this.kinesisStreamConfig = getStreamConfig(kinesisSourceConfig);
+        this.kinesisStreamConfig = kinesisStreamConfig;
         this.kinesisRecordConverter = kinesisRecordConverter;
         this.acknowledgementSetManager = acknowledgementSetManager;
         this.acknowledgementSetSuccesses = pluginMetrics.counterWithTags(ACKNOWLEDGEMENT_SET_SUCCESS_METRIC_NAME, KINESIS_STREAM_TAG_KEY, streamIdentifier.streamName());
@@ -109,14 +109,6 @@ public class KinesisRecordProcessor implements ShardRecordProcessor {
         this.kinesisCheckpointerTracker = kinesisCheckpointerTracker;
         this.executorService = Executors.newSingleThreadExecutor(BackgroundThreadFactory.defaultExecutorThreadFactory("kinesis-ack-monitor"));
         this.isStopRequested = new AtomicBoolean(false);
-    }
-
-    private KinesisStreamConfig getStreamConfig(final KinesisSourceConfig kinesisSourceConfig) {
-        final Optional<KinesisStreamConfig> kinesisStreamConfig = kinesisSourceConfig.getStreams().stream().filter(streamConfig -> streamConfig.getName().equals(streamIdentifier.streamName())).findAny();
-        if (kinesisStreamConfig.isEmpty()) {
-            throw new KinesisStreamNotFoundException(String.format("Kinesis stream not found for %s", streamIdentifier.streamName()));
-        }
-        return kinesisStreamConfig.get();
     }
 
     @Override

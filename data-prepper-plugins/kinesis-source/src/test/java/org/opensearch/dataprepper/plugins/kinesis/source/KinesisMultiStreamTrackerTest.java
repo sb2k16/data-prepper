@@ -10,6 +10,7 @@
 
 package org.opensearch.dataprepper.plugins.kinesis.source;
 
+import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,9 +38,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 public class KinesisMultiStreamTrackerTest {
-    private static final String APPLICATION_NAME = "multi-stream-application";
-    private static final String awsAccountId = "1234";
+    private static final String APPLICATION_NAME = UUID.randomUUID().toString();
+    private static final String awsAccountId = RandomStringUtils.randomNumeric(12);
     private static final Instant streamCreationTime = Instant.now();
+    private static final String streamArnFormat = "arn:aws:kinesis:us-east-1:%s:stream/%s";
 
     private List<StreamConfig> streamConfigList;
 
@@ -142,7 +144,36 @@ public class KinesisMultiStreamTrackerTest {
     }
 
     @Test
-    public void formerStreamsLeasesDeletionStrategy() {
+    public void testStreamConfigListWithArn() {
+        List<KinesisStreamConfig> kinesisStreamConfigs = new ArrayList<>();
+        streamConfigMap = new HashMap<>();
+        streamsList.forEach(stream -> {
+            KinesisStreamConfig kinesisStreamConfig = mock(KinesisStreamConfig.class);
+            String streamArn = String.format(streamArnFormat, awsAccountId, stream);
+            when(kinesisStreamConfig.getArn()).thenReturn(streamArn);
+            when(kinesisStreamConfig.getInitialPosition()).thenReturn(InitialPositionInStream.LATEST);
+            when(kinesisClientAPIHandler.getStreamIdentifierFromStreamArn(streamArn)).thenReturn(getStreamIdentifier(stream));
+            kinesisStreamConfigs.add(kinesisStreamConfig);
+            streamConfigMap.put(stream, kinesisStreamConfig);
+        });
+
+        when(kinesisSourceConfig.getStreams()).thenReturn(kinesisStreamConfigs);
+
+        KinesisMultiStreamTracker kinesisMultiStreamTracker = createObjectUnderTest();
+        streamConfigList = kinesisMultiStreamTracker.streamConfigList();
+        assertEquals(streamConfigMap.size(), streamConfigList.size());
+
+        for (StreamConfig streamConfig : streamConfigList) {
+            final StreamIdentifier streamIdentifier = streamConfig.streamIdentifier();
+            final String stream = streamIdentifier.streamName();
+            final InitialPositionInStreamExtended initialPositionInStreamExtended = streamConfig.initialPositionInStreamExtended();
+            assertEquals(streamIdentifier, getStreamIdentifier(stream));
+            assertEquals(initialPositionInStreamExtended, InitialPositionInStreamExtended.newInitialPosition(streamConfigMap.get(stream).getInitialPosition()));
+        }
+    }
+
+    @Test
+    public void testFormerStreamsLeasesDeletionStrategy() {
 
         FormerStreamsLeasesDeletionStrategy formerStreamsLeasesDeletionStrategy =
                 createObjectUnderTest().formerStreamsLeasesDeletionStrategy();

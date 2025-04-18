@@ -33,6 +33,10 @@ public class KinesisStreamConfig {
     @Valid
     private String arn;
 
+    @JsonProperty("consumer_arn")
+    @Valid
+    private String consumerarn;
+
     @JsonProperty("initial_position")
     private InitialPositionInStreamConfig initialPosition = InitialPositionInStreamConfig.LATEST;
 

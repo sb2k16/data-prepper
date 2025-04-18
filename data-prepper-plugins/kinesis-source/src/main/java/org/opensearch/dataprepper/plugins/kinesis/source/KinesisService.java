@@ -29,6 +29,7 @@ import org.opensearch.dataprepper.plugins.kinesis.extension.KinesisLeaseConfig;
 import org.opensearch.dataprepper.plugins.kinesis.extension.KinesisLeaseConfigSupplier;
 import org.opensearch.dataprepper.plugins.kinesis.source.configuration.ConsumerStrategy;
 import org.opensearch.dataprepper.plugins.kinesis.source.configuration.KinesisSourceConfig;
+import org.opensearch.dataprepper.plugins.kinesis.source.configuration.MultiStreamFanOutConfig;
 import org.opensearch.dataprepper.plugins.kinesis.source.processor.KinesisShardRecordProcessorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +43,7 @@ import software.amazon.kinesis.exceptions.KinesisClientLibDependencyException;
 import software.amazon.kinesis.exceptions.ThrottlingException;
 import software.amazon.kinesis.processor.ShardRecordProcessorFactory;
 import software.amazon.kinesis.retrieval.RetrievalConfig;
+import software.amazon.kinesis.retrieval.fanout.FanOutConfig;
 import software.amazon.kinesis.retrieval.polling.PollingConfig;
 
 import java.time.Duration;
@@ -201,6 +203,11 @@ public class KinesisService {
                     .idleTimeBetweenReadsInMillis(
                             kinesisSourceConfig.getPollingConfig().getIdleTimeBetweenReads().toMillis()));
         }
+//        else {
+//            MultiStreamFanOutConfig multiStreamFanOutConfig = new MultiStreamFanOutConfig(kinesisClient, kinesisClientApiHandler);
+//            multiStreamFanOutConfig.applicationName(this.applicationName);
+//            retrievalConfig = configsBuilder.retrievalConfig().retrievalSpecificConfig(multiStreamFanOutConfig);
+//        }
 
         return new Scheduler(
                 configsBuilder.checkpointConfig(),

@@ -166,7 +166,6 @@ public class KinesisSourceConfigTest {
         }
     }
 
-
     @Test
     @Tag(PIPELINE_CONFIG_CHECKPOINT_ENABLED)
     void testSourceConfigWithInitialPosition() {

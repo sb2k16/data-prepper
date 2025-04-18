@@ -15,6 +15,8 @@ import com.linecorp.armeria.client.retry.Backoff;
 import lombok.extern.slf4j.Slf4j;
 import org.opensearch.dataprepper.plugins.kinesis.source.exceptions.KinesisRetriesExhaustedException;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
+import software.amazon.awssdk.services.kinesis.model.DescribeStreamConsumerRequest;
+import software.amazon.awssdk.services.kinesis.model.DescribeStreamConsumerResponse;
 import software.amazon.awssdk.services.kinesis.model.DescribeStreamSummaryRequest;
 import software.amazon.awssdk.services.kinesis.model.DescribeStreamSummaryResponse;
 import software.amazon.awssdk.services.kinesis.model.KinesisException;
@@ -37,6 +39,7 @@ public class KinesisClientApiHandler {
     private int failedAttemptCount;
     private int maxRetryCount;
     private final Map<String, String> streamIdentifierMap;
+    private final Map<String, String> streamIdentifierToStreamArnMap;
 
     public KinesisClientApiHandler(final KinesisAsyncClient kinesisClient, final Backoff backoff, final int maxRetryCount) {
         this.kinesisClient = kinesisClient;
@@ -47,12 +50,14 @@ public class KinesisClientApiHandler {
         }
         this.maxRetryCount = maxRetryCount;
         this.streamIdentifierMap = new ConcurrentHashMap<>();
+        this.streamIdentifierToStreamArnMap = new ConcurrentHashMap<>();
     }
 
     public StreamIdentifier getStreamIdentifier(final String streamName) {
         final DescribeStreamSummaryResponse response = getStreamDescriptionSummary(streamName, null);
         String streamIdentifierString = getStreamIdentifierString(response.streamDescriptionSummary());
         this.streamIdentifierMap.put(streamIdentifierString, streamName);
+        this.streamIdentifierToStreamArnMap.put(streamIdentifierString, response.streamDescriptionSummary().streamARN());
         return StreamIdentifier.multiStreamInstance(streamIdentifierString);
     }
 
@@ -62,8 +67,16 @@ public class KinesisClientApiHandler {
         final DescribeStreamSummaryResponse response = getStreamDescriptionSummary(streamName, streamArn);
         String streamIdentifierString = getStreamIdentifierString(response.streamDescriptionSummary());
         this.streamIdentifierMap.put(streamIdentifierString, streamArn);
-        long creationEpochSecond = response.streamDescriptionSummary().streamCreationTimestamp().getEpochSecond();
-        return StreamIdentifier.multiStreamInstance(arn, creationEpochSecond);
+        this.streamIdentifierToStreamArnMap.put(streamIdentifierString, response.streamDescriptionSummary().streamARN());
+        return StreamIdentifier.multiStreamInstance(arn, response.streamDescriptionSummary().streamCreationTimestamp().getEpochSecond());
+    }
+
+    public Optional<String> getConsumerArnForStream(final String streamArn, final String consumerName) {
+        DescribeStreamConsumerResponse response = describeStreamConsumer(streamArn, consumerName);
+        if (response == null) {
+            return Optional.empty();
+        }
+        return Optional.of(response.consumerDescription().consumerARN());
     }
 
     public Optional<String> getStreamInfoFromStreamIdentifier(final String streamIdentifier) {
@@ -71,6 +84,10 @@ public class KinesisClientApiHandler {
             return Optional.empty();
         }
         return Optional.ofNullable(this.streamIdentifierMap.get(streamIdentifier));
+    }
+
+    public String getStreamArnFromStreamIdentifier(final String streamIdentifier) {
+        return this.streamIdentifierToStreamArnMap.get(streamIdentifier);
     }
 
     private DescribeStreamSummaryResponse getStreamDescriptionSummary(final String streamName, final String streamArn) {
@@ -88,6 +105,20 @@ public class KinesisClientApiHandler {
             applyBackoff(attempt);
         }
         throw new KinesisRetriesExhaustedException(String.format("Failed to get Kinesis stream summary for stream %s after %d retries", streamName, maxRetryCount));
+    }
+
+    private DescribeStreamConsumerResponse describeStreamConsumer(final String streamArn, final String consumerName) {
+        DescribeStreamConsumerRequest request = DescribeStreamConsumerRequest.builder()
+                                                .streamARN(streamArn).consumerName(consumerName).build();
+        for (int attempt = 0; attempt < maxRetryCount; attempt++) {
+            try {
+                return kinesisClient.describeStreamConsumer(request).join();
+            } catch (CompletionException ex) {
+                handleException(ex, streamArn, attempt);
+            }
+            applyBackoff(attempt);
+        }
+        throw new KinesisRetriesExhaustedException(String.format("Failed to get Kinesis stream consumer for stream arn %s after %d retries", streamArn, maxRetryCount));
     }
 
     private void handleException(CompletionException ex, String streamName, int attempt) {

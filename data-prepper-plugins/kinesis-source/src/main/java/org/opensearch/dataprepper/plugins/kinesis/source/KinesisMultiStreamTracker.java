@@ -19,11 +19,13 @@ import software.amazon.kinesis.processor.FormerStreamsLeasesDeletionStrategy;
 import software.amazon.kinesis.processor.MultiStreamTracker;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class KinesisMultiStreamTracker implements MultiStreamTracker {
+    private static final Duration FORMER_STREAMS_LEASE_DELETION_WAIT_PERIOD = Duration.ofSeconds(10);
     private final KinesisSourceConfig sourceConfig;
     private final String applicationName;
     private final KinesisClientApiHandler kinesisClientAPIHandler;
@@ -35,24 +37,33 @@ public class KinesisMultiStreamTracker implements MultiStreamTracker {
     }
 
     @Override
-    public List<StreamConfig> streamConfigList()  {
-        List<StreamConfig> streamConfigList = new ArrayList<>();
-        for (KinesisStreamConfig kinesisStreamConfig : sourceConfig.getStreams()) {
-            StreamConfig streamConfig = getStreamConfig(kinesisStreamConfig);
-            streamConfigList.add(streamConfig);
-        }
-        return streamConfigList;
+    public List<StreamConfig> streamConfigList() {
+        return sourceConfig.getStreams().stream()
+                .map(this::createStreamConfig)
+                .collect(Collectors.toList());
     }
 
-    private StreamConfig getStreamConfig(KinesisStreamConfig kinesisStreamConfig) {
-        StreamIdentifier sourceStreamIdentifier;
+    private StreamConfig createStreamConfig(KinesisStreamConfig kinesisStreamConfig) {
+        StreamIdentifier streamIdentifier = getStreamIdentifier(kinesisStreamConfig);
         if (Objects.nonNull(kinesisStreamConfig.getArn())) {
-            sourceStreamIdentifier = kinesisClientAPIHandler.getStreamIdentifierFromStreamArn(kinesisStreamConfig.getArn());
-        } else {
-            sourceStreamIdentifier = kinesisClientAPIHandler.getStreamIdentifier(kinesisStreamConfig.getName());
+            Optional<String> consumerArn = kinesisClientAPIHandler.getConsumerArnForStream(kinesisStreamConfig.getArn(), this.applicationName);
+            if (consumerArn.isPresent()) {
+                return new StreamConfig(streamIdentifier, InitialPositionInStreamExtended.newInitialPosition(kinesisStreamConfig.getInitialPosition()), consumerArn.get());
+            }
         }
-        return new StreamConfig(sourceStreamIdentifier,
-                InitialPositionInStreamExtended.newInitialPosition(kinesisStreamConfig.getInitialPosition()));
+        return new StreamConfig(streamIdentifier,
+                InitialPositionInStreamExtended.newInitialPosition(kinesisStreamConfig.getInitialPosition())
+        );
+    }
+
+    private StreamIdentifier getStreamIdentifier(KinesisStreamConfig kinesisStreamConfig) {
+        if (Objects.nonNull(kinesisStreamConfig.getArn())) {
+            return kinesisClientAPIHandler.getStreamIdentifierFromStreamArn(kinesisStreamConfig.getArn());
+        } else if (Objects.nonNull(kinesisStreamConfig.getName())) {
+            return kinesisClientAPIHandler.getStreamIdentifier(kinesisStreamConfig.getName());
+        } else {
+            throw new IllegalArgumentException("Either ARN or name must be specified for Kinesis stream configuration");
+        }
     }
 
     /**
@@ -63,9 +74,8 @@ public class KinesisMultiStreamTracker implements MultiStreamTracker {
         return new FormerStreamsLeasesDeletionStrategy.AutoDetectionAndDeferredDeletionStrategy() {
             @Override
             public Duration waitPeriodToDeleteFormerStreams() {
-                return Duration.ofSeconds(10);
+                return FORMER_STREAMS_LEASE_DELETION_WAIT_PERIOD;
             }
         };
-
     }
 }
